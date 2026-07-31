@@ -28,19 +28,19 @@ jobs:
           bun-version: latest
 
       - name: Install runtime dependencies (bun install --frozen-lockfile)
-        working-directory: pglite-runtime
+        working-directory: litegres-runtime
         run: bun install --frozen-lockfile
 
       - name: Type-check the runtime
-        working-directory: pglite-runtime
+        working-directory: litegres-runtime
         run: bunx tsc --noEmit
 
       - name: Run runtime bun:test suite
-        working-directory: pglite-runtime
+        working-directory: litegres-runtime
         run: bun test
 
       - name: Build the standalone runtime executable
-        working-directory: pglite-runtime
+        working-directory: litegres-runtime
         run: bun run build
 
       - name: Set up Gradle
@@ -83,7 +83,7 @@ jobs:
           bun-version: latest
 
       - name: Install runtime dependencies
-        working-directory: pglite-runtime
+        working-directory: litegres-runtime
         run: bun install --frozen-lockfile
 
       - name: Set up Gradle

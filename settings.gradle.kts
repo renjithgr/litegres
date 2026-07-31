@@ -1,9 +1,9 @@
-rootProject.name = "pglite-jvm"
+rootProject.name = "litegres"
 
 include(
-    "pglite-core",
-    "pglite-junit5",
-    "pglite-spring",
-    "pglite-flyway",
+    "litegres-core",
+    "litegres-junit5",
+    "litegres-spring",
+    "litegres-flyway",
     "integration-tests",
 )

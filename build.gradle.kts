@@ -3,7 +3,7 @@ plugins {
 }
 
 allprojects {
-    group = "dev.pglitejvm"
+    group = "dev.litegres"
     version = "0.1.0-SNAPSHOT"
 
     repositories {
@@ -25,7 +25,7 @@ subprojects {
 
         tasks.withType<Test>().configureEach {
             useJUnitPlatform()
-            // pglite-core's shutdown-hook test reflects into java.lang.ApplicationShutdownHooks
+            // litegres-core's shutdown-hook test reflects into java.lang.ApplicationShutdownHooks
             // to verify hooks are actually deregistered, not just that no exception is thrown.
             jvmArgs("--add-opens", "java.base/java.lang=ALL-UNNAMED")
             testLogging {

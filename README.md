@@ -1,8 +1,8 @@
-# pglite-jvm
+# litegres
 
 **A fast, Docker-free alternative to PostgreSQL Testcontainers for JVM integration tests.**
 
-pglite-jvm launches [PGlite](https://pglite.dev) — PostgreSQL compiled to WebAssembly, running inside [Bun](https://bun.sh) — as a child process, exposes it over the real PostgreSQL wire protocol on a local TCP port, and hands you back an ordinary JDBC URL. Your Kotlin or Java code (Spring Boot, Flyway, jOOQ, JPA, plain JDBC — anything that speaks PostgreSQL over JDBC) connects with the standard `org.postgresql:postgresql` driver, completely unaware that there's no real `postgres` binary, no container runtime, and no Docker daemon involved.
+litegres launches [PGlite](https://pglite.dev) — PostgreSQL compiled to WebAssembly, running inside [Bun](https://bun.sh) — as a child process, exposes it over the real PostgreSQL wire protocol on a local TCP port, and hands you back an ordinary JDBC URL. Your Kotlin or Java code (Spring Boot, Flyway, jOOQ, JPA, plain JDBC — anything that speaks PostgreSQL over JDBC) connects with the standard `org.postgresql:postgresql` driver, completely unaware that there's no real `postgres` binary, no container runtime, and no Docker daemon involved.
 
 It is **not** a claim that PGlite is a container, and **not** a claim that PGlite is a complete, certified PostgreSQL replacement. See [Compatibility limitations](#compatibility-limitations) below — read it before you rely on this for anything beyond fast local/CI integration tests.
 
@@ -29,7 +29,7 @@ That's it — no Docker, no `docker-compose.yml`, no waiting for a container to 
 ## Plain JDBC example
 
 ```kotlin
-import dev.pglitejvm.core.PGliteDatabase
+import dev.litegres.core.PGliteDatabase
 import java.sql.DriverManager
 import java.time.Duration
 
@@ -59,7 +59,7 @@ database.close()
 ## JUnit 5 example
 
 ```kotlin
-import dev.pglitejvm.junit5.PGliteExtension
+import dev.litegres.junit5.PGliteExtension
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 
@@ -85,8 +85,8 @@ By default the extension is class-scoped (`PGliteLifecycle.PER_CLASS`): one data
 ## Spring Boot example
 
 ```kotlin
-import dev.pglitejvm.core.PGliteDatabase
-import dev.pglitejvm.spring.PGliteSpring
+import dev.litegres.core.PGliteDatabase
+import dev.litegres.spring.PGliteSpring
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
@@ -111,8 +111,8 @@ class AccountRepositoryTest {
 ## Flyway example
 
 ```kotlin
-import dev.pglitejvm.core.PGliteDatabase
-import dev.pglitejvm.flyway.PGliteFlyway
+import dev.litegres.core.PGliteDatabase
+import dev.litegres.flyway.PGliteFlyway
 
 val database = PGliteDatabase.builder()
     .withInitializer(PGliteFlyway.migrate(listOf("classpath:db/migration")))
@@ -121,7 +121,7 @@ val database = PGliteDatabase.builder()
 database.start() // migrations have already run by the time start() returns
 ```
 
-`pglite-flyway` is a separate, optional module — `pglite-core` has no Flyway dependency. Internally it's just `PGliteDatabaseBuilder.withInitializer { connectionInfo -> Flyway.configure()... }`, so you can do the same thing yourself without the module if you want more control.
+`litegres-flyway` is a separate, optional module — `litegres-core` has no Flyway dependency. Internally it's just `PGliteDatabaseBuilder.withInitializer { connectionInfo -> Flyway.configure()... }`, so you can do the same thing yourself without the module if you want more control.
 
 ## Requirements
 
@@ -134,9 +134,9 @@ database.start() // migrations have already run by the time start() returns
 Resolution order, first match wins:
 
 1. Explicit builder configuration — `.withBunExecutable(path)`, `.withRuntimeExecutable(path)`, or `.useBundledRuntime()`
-2. `PGLITE_JVM_RUNTIME_PATH` — path to an externally-compiled standalone runtime executable
+2. `LITEGRES_RUNTIME_PATH` — path to an externally-compiled standalone runtime executable
 3. This library's own bundled standalone executable for the current platform (only present if you built it — see [Packaging](#packaging-and-runtime-modes) below)
-4. `PGLITE_JVM_BUN_PATH` — path to a `bun` executable
+4. `LITEGRES_BUN_PATH` — path to a `bun` executable
 5. `bun` found on `PATH`
 
 If none of these resolve, `PGliteRuntimeNotFoundException` explains exactly what was checked and how to fix it — install Bun, or point at one of the above.
@@ -158,13 +158,13 @@ NEW → STARTING → RUNNING → STOPPING → STOPPED
 
 Two modes, both reading PGlite's WASM/data assets from an explicit directory next to the launcher (a real, on-disk asset directory the JVM extracts to a private temp dir — see [Compatibility limitations](#compatibility-limitations) for why this had to be explicit rather than PGlite's own default relative-path resolution):
 
-- **Development mode** — requires Bun installed. `pglite-core` bundles the TypeScript launcher as a single dependency-free JS file (`bun build --target=bun`) plus PGlite's WASM/data assets as classpath resources; at runtime these are extracted to a temp directory and run as `bun <bundle.js> <config>`.
-- **Standalone executable mode** — `bun build --compile` produces a single self-contained executable (Bun itself included) for the *host* platform, packaged as a classpath resource under `pglite-runtime/bin/<platform-id>/`. `.useBundledRuntime()` extracts and runs it directly — no Bun installation needed on the machine running the tests. Supported platform identifiers: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x86_64`, `windows-x86_64` (only the platform you actually built on will be present; missing platforms fail with a clear "not present on the classpath" error rather than silently using the wrong binary).
+- **Development mode** — requires Bun installed. `litegres-core` bundles the TypeScript launcher as a single dependency-free JS file (`bun build --target=bun`) plus PGlite's WASM/data assets as classpath resources; at runtime these are extracted to a temp directory and run as `bun <bundle.js> <config>`.
+- **Standalone executable mode** — `bun build --compile` produces a single self-contained executable (Bun itself included) for the *host* platform, packaged as a classpath resource under `litegres-runtime/bin/<platform-id>/`. `.useBundledRuntime()` extracts and runs it directly — no Bun installation needed on the machine running the tests. Supported platform identifiers: `darwin-aarch64`, `darwin-x86_64`, `linux-aarch64`, `linux-x86_64`, `windows-x86_64` (only the platform you actually built on will be present; missing platforms fail with a clear "not present on the classpath" error rather than silently using the wrong binary).
 
 Build/package the runtime with:
 
 ```bash
-./gradlew :pglite-core:buildPGliteRuntime   # typecheck + bun:test + package both modes
+./gradlew :litegres-core:buildPGliteRuntime   # typecheck + bun:test + package both modes
 ```
 
 `./gradlew build` and `./gradlew test` do this automatically as part of `processResources` — you do not need to run it separately in normal development.
@@ -176,12 +176,12 @@ PGlite is real PostgreSQL, but it runs Postgres's single-user bootstrap mode com
 - **One shared backend session for every connection.** PGlite is single-user: every socket connection you open — from any number of separate JDBC `Connection` objects — is bridged onto the *same* underlying Postgres session. Consequences we hit directly:
   - `current_database()` / `current_user` are **always** `postgres`/`postgres`, no matter what database/username you put in the JDBC URL — PGlite's socket layer does not read the wire-protocol StartupMessage's requested db/user at all. `.databaseName()`/`.username()` are still accepted (and appear in the URL, since some tools require *some* value there), but they provide no real per-database or per-role isolation.
   - There is **no password authentication** — any password is accepted.
-  - Server-side prepared statement names are **not connection-private** — a second JDBC connection can collide with a name a prior (still "connected" from Postgres's point of view) connection never released, failing with `prepared statement "S_1" already exists`. pglite-jvm works around this by appending `&prepareThreshold=0` to the JDBC URL it hands you (the same trick used for PgBouncer transaction-pooling mode, for the same underlying reason).
+  - Server-side prepared statement names are **not connection-private** — a second JDBC connection can collide with a name a prior (still "connected" from Postgres's point of view) connection never released, failing with `prepared statement "S_1" already exists`. litegres works around this by appending `&prepareThreshold=0` to the JDBC URL it hands you (the same trick used for PgBouncer transaction-pooling mode, for the same underlying reason).
   - **An error on one statement can surface on a *later* statement's response**, if both run over the same connection. We reproduced this independently of this library with a raw JDBC connection against the runtime directly — it's a PGlite/pglite-socket wire-protocol bridging limitation, not a bug in this project. Don't assume "no exception here" means "this statement succeeded" when reusing one connection across statements that might fail; give risky/independent operations their own connections, as this project's own test suite does.
   - **LISTEN/NOTIFY is not delivered across connections.** NOTIFY executes without error, but pglite-socket does not push the asynchronous NotificationResponse to a *different* connection's LISTEN — only real concurrent PostgreSQL backends do that.
-  - A long-held open transaction on one connection can **stall queries on every other connection** (PGlite's query queue only serves the transaction owner's next query while a transaction is open). This is why `pglite-flyway` disables Flyway's default transactional advisory-lock strategy (`flyway.postgresql.transactional.lock=false`) — Flyway's default holds a transaction open across the whole migrate() call, which deadlocked against this exact limitation.
+  - A long-held open transaction on one connection can **stall queries on every other connection** (PGlite's query queue only serves the transaction owner's next query while a transaction is open). This is why `litegres-flyway` disables Flyway's default transactional advisory-lock strategy (`flyway.postgresql.transactional.lock=false`) — Flyway's default holds a transaction open across the whole migrate() call, which deadlocked against this exact limitation.
 - **Do not use PGlite to validate**: realistic concurrent database sessions, deadlocks, lock contention, connection-pool exhaustion, replication, failover, WAL behavior, external PostgreSQL extensions your production database relies on, SSL/TLS behavior, OS-level PostgreSQL behavior, or performance characteristics relative to native PostgreSQL. `SELECT ... FOR UPDATE` and advisory locks execute as valid SQL, but there is no second concurrent backend to actually contend with, so real locking semantics are not exercised.
-- **This is not production certification.** PGlite is alpha-status software (per its own README) with real, sharp single-session semantics. Treat pglite-jvm as a fast inner-loop tool, not a substitute for testing against real PostgreSQL before release.
+- **This is not production certification.** PGlite is alpha-status software (per its own README) with real, sharp single-session semantics. Treat litegres as a fast inner-loop tool, not a substitute for testing against real PostgreSQL before release.
 
 ### Recommended two-tier testing strategy
 
@@ -190,11 +190,11 @@ Fast integration tests:    PGlite, on every local run and every pull request.
 Compatibility tests:       native PostgreSQL via Testcontainers, in CI or before release.
 ```
 
-Use pglite-jvm for the tests you run constantly (schema shape, query correctness, migrations, repository logic). Keep a smaller Testcontainers-backed suite — gated in CI, or run before a release — for anything touching concurrency, locking, extensions, or replication.
+Use litegres for the tests you run constantly (schema shape, query correctness, migrations, repository logic). Keep a smaller Testcontainers-backed suite — gated in CI, or run before a release — for anything touching concurrency, locking, extensions, or replication.
 
 ## PGlite vs. Testcontainers
 
-| Capability | pglite-jvm | PostgreSQL Testcontainers |
+| Capability | litegres | PostgreSQL Testcontainers |
 |---|---|---|
 | Requires Docker | No | Yes |
 | Cold startup time | Milliseconds–low seconds | Seconds (image pull aside) |
@@ -211,12 +211,12 @@ Use pglite-jvm for the tests you run constantly (schema shape, query correctness
 
 ## Troubleshooting
 
-- **`PGliteRuntimeNotFoundException`** — the exception message lists every location checked (env vars, bundled resources, `PATH`). Install Bun, or set `PGLITE_JVM_BUN_PATH` / `PGLITE_JVM_RUNTIME_PATH`.
-- **`PGLITE_JVM_BUN_PATH` points at an invalid executable** — the exception names the exact path and why it was rejected (missing, not a regular file, not executable).
+- **`PGliteRuntimeNotFoundException`** — the exception message lists every location checked (env vars, bundled resources, `PATH`). Install Bun, or set `LITEGRES_BUN_PATH` / `LITEGRES_RUNTIME_PATH`.
+- **`LITEGRES_BUN_PATH` points at an invalid executable** — the exception names the exact path and why it was rejected (missing, not a regular file, not executable).
 - **Unsupported operating system / architecture** — `PlatformId` supports `darwin`/`linux`/`windows` × `aarch64`/`x86_64` only; anything else throws `UnsupportedOperationException` rather than guessing.
 - **Executable permission errors on the extracted standalone binary** — this project sets the executable bit itself after extraction; if your environment strips exec permissions from temp directories (some hardened CI sandboxes do), fall back to development mode (`.withBunExecutable(...)`, or just have `bun` on `PATH`).
 - **macOS quarantine / signing** — a locally-built standalone executable is not notarized. If macOS refuses to run it, `xattr -d com.apple.quarantine <path>` on the extracted binary, or use development mode instead.
-- **Missing PGlite WASM assets** — if you see `classpath resource pglite-runtime/... was not found`, the runtime wasn't packaged; run `./gradlew :pglite-core:buildPGliteRuntime`.
+- **Missing PGlite WASM assets** — if you see `classpath resource litegres-runtime/... was not found`, the runtime wasn't packaged; run `./gradlew :litegres-core:buildPGliteRuntime`.
 - **Child process exits before readiness** — `PGliteProcessExitedException` includes the exit code and recent stderr output.
 - **Malformed control messages** — `PGliteReadinessException` includes the raw line that failed to parse and recent stderr, for diagnosing a broken/incompatible runtime build.
 
@@ -230,7 +230,7 @@ Documented as future work, not implemented yet:
 
 - Bundled standalone executables for every supported platform (currently: host-platform-only build)
 - Database snapshots / migrated-template cloning (start every test from a pre-migrated template instead of re-running Flyway)
-- A custom `jdbc:pglite:` driver (no dependency on a spawned TCP server)
+- A custom `jdbc:litegres:` driver (no dependency on a spawned TCP server)
 - R2DBC support
 - Spring Boot service connections (`@ServiceConnection`)
 - Gradle test fixtures plugin integration
@@ -240,13 +240,13 @@ Documented as future work, not implemented yet:
 ## Repository structure
 
 ```
-pglite-jvm/
-├── pglite-runtime/     TypeScript launcher (Bun-only): PGlite + pglite-socket, wire protocol bridge
-├── pglite-core/        Kotlin lifecycle API: process management, runtime discovery, JDBC verification
-├── pglite-junit5/       JUnit 5 extension (PER_CLASS / PER_TEST)
-├── pglite-spring/       @DynamicPropertySource helper with conservative Hikari defaults
-├── pglite-flyway/       Optional Flyway convenience (Flyway is not a pglite-core dependency)
-└── integration-tests/  End-to-end tests across all modules + a startup-time benchmark
+litegres/
+├── litegres-runtime/    TypeScript launcher (Bun-only): PGlite + pglite-socket, wire protocol bridge
+├── litegres-core/       Kotlin lifecycle API: process management, runtime discovery, JDBC verification
+├── litegres-junit5/     JUnit 5 extension (PER_CLASS / PER_TEST)
+├── litegres-spring/     @DynamicPropertySource helper with conservative Hikari defaults
+├── litegres-flyway/     Optional Flyway convenience (Flyway is not a litegres-core dependency)
+└── integration-tests/   End-to-end tests across all modules + a startup-time benchmark
 ```
 
 ## Commands
@@ -256,9 +256,9 @@ pglite-jvm/
 ./gradlew test                                   # unit tests for all modules
 ./gradlew :integration-tests:integrationTest      # full end-to-end suite (JDBC, JUnit5, Spring, Flyway, jOOQ)
 ./gradlew :integration-tests:benchmark            # rough startup-time comparison (requires Docker)
-./gradlew :pglite-core:buildPGliteRuntime         # typecheck + bun:test + package the runtime explicitly
+./gradlew :litegres-core:buildPGliteRuntime       # typecheck + bun:test + package the runtime explicitly
 
-cd pglite-runtime
+cd litegres-runtime
 bun install
 bun run dev     # or: bun test / bun run typecheck / bun run build
 ```

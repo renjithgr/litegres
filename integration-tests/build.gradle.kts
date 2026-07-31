@@ -3,10 +3,10 @@ plugins {
 }
 
 dependencies {
-    testImplementation(project(":pglite-core"))
-    testImplementation(project(":pglite-junit5"))
-    testImplementation(project(":pglite-spring"))
-    testImplementation(project(":pglite-flyway"))
+    testImplementation(project(":litegres-core"))
+    testImplementation(project(":litegres-junit5"))
+    testImplementation(project(":litegres-spring"))
+    testImplementation(project(":litegres-flyway"))
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
@@ -25,7 +25,7 @@ dependencies {
 
 tasks.register<Test>("integrationTest") {
     group = "verification"
-    description = "Runs the full pglite-jvm end-to-end integration test suite"
+    description = "Runs the full litegres end-to-end integration test suite"
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     shouldRunAfter(tasks.named("test"))
@@ -34,7 +34,7 @@ tasks.register<Test>("integrationTest") {
 tasks.register<JavaExec>("benchmark") {
     group = "verification"
     description = "Runs the (rough, single-machine) PGlite-vs-Testcontainers startup benchmark. Requires Docker."
-    mainClass.set("dev.pglitejvm.integration.benchmark.BenchmarkKt")
+    mainClass.set("dev.litegres.integration.benchmark.BenchmarkKt")
     classpath = sourceSets["test"].runtimeClasspath
 }
 
