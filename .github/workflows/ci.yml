@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -90,8 +91,27 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       # Runs on every push/PR by default; consider gating this job to release
-      # branches or a manual trigger once the compatibility suite grows, since
-      # it needs Docker and is meant as a slower, native-PostgreSQL safety net
-      # rather than the fast inner-loop suite above.
+      # branches once the compatibility suite grows, since it needs Docker and
+      # is meant as a slower, native-PostgreSQL safety net rather than the fast
+      # inner-loop suite above. Can also be run on demand via workflow_dispatch.
       - name: Run the startup benchmark (includes a native Postgres via Testcontainers)
         run: ./gradlew :integration-tests:benchmark --console=plain
+
+      - name: Publish benchmark results to the job summary
+        if: always()
+        run: |
+          if [ -f integration-tests/build/benchmark-results.md ]; then
+            cat integration-tests/build/benchmark-results.md >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Runner: \`${{ runner.os }}\`/\`${{ runner.arch }}\` on GitHub-hosted \`ubuntu-latest\`, native Docker (no Docker-Desktop-style VM overhead)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No benchmark-results.md was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: integration-tests/build/benchmark-results.md
+          retention-days: 30
