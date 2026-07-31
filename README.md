@@ -255,10 +255,16 @@ litegres/
 ./gradlew build                                  # build everything, including the runtime
 ./gradlew test                                   # unit tests for all modules
 ./gradlew :integration-tests:integrationTest      # full end-to-end suite (JDBC, JUnit5, Spring, Flyway, jOOQ)
-./gradlew :integration-tests:benchmark            # rough startup-time comparison (requires Docker)
+./gradlew :integration-tests:benchmark            # startup-time comparison (requires Docker)
 ./gradlew :litegres-core:buildPGliteRuntime       # typecheck + bun:test + package the runtime explicitly
 
 cd litegres-runtime
 bun install
 bun run dev     # or: bun test / bun run typecheck / bun run build
 ```
+
+### About the benchmark
+
+`./gradlew :integration-tests:benchmark` (source: `integration-tests/.../benchmark/`) runs several iterations of each scenario — cold startup, cold startup + Flyway, and "5 sequential fresh instances" (simulating a small test suite) — for both litegres and Testcontainers, reporting min/median/mean/max/stddev to stdout and a Markdown table to `integration-tests/build/benchmark-results.md`. It's still a single-machine, single-invocation report, not a scientific benchmark — don't generalize from one run.
+
+One honest result worth flagging: **the gap between litegres and Testcontainers is highly dependent on your Docker runtime.** On a host using [OrbStack](https://orbstack.dev) (a fast, native-feeling Docker replacement for macOS), container startup was measured at ~1.1–1.3s — close enough to litegres's own ~1.3s startup that neither consistently won across repeated runs. That's a very different picture from stock Docker Desktop on macOS, where the VM/virtiofs layer typically adds several extra seconds per container. If you're comparing on your own machine, check what's actually backing your `docker` command before drawing conclusions. It's also worth noting that most of litegres's per-instance cost is re-compiling PGlite's ~9.6MB WASM module in a fresh Bun process; the intended usage pattern — one instance reused across a whole test class or run (`PGliteLifecycle.PER_CLASS`, or a single static instance for `@SpringBootTest`) — pays that cost once, not per test.
