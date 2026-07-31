@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test (Linux x86-64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install runtime dependencies (bun install --frozen-lockfile)
+        working-directory: pglite-runtime
+        run: bun install --frozen-lockfile
+
+      - name: Type-check the runtime
+        working-directory: pglite-runtime
+        run: bunx tsc --noEmit
+
+      - name: Run runtime bun:test suite
+        working-directory: pglite-runtime
+        run: bun test
+
+      - name: Build the standalone runtime executable
+        working-directory: pglite-runtime
+        run: bun run build
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run JVM unit tests (builds + packages the runtime as a side effect)
+        run: ./gradlew test --console=plain
+
+      - name: Run JDBC/JUnit5/Spring/Flyway/jOOQ integration tests against the Bun runtime
+        run: ./gradlew :integration-tests:integrationTest --console=plain
+
+      - name: Run the compiled standalone executable integration test
+        run: >
+          ./gradlew :integration-tests:integrationTest --console=plain
+          --tests "*StandaloneExecutableIntegrationTest*"
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: '**/build/reports/tests/**'
+          retention-days: 7
+
+  native-postgres-compatibility:
+    name: Native PostgreSQL compatibility (Testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install runtime dependencies
+        working-directory: pglite-runtime
+        run: bun install --frozen-lockfile
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Runs on every push/PR by default; consider gating this job to release
+      # branches or a manual trigger once the compatibility suite grows, since
+      # it needs Docker and is meant as a slower, native-PostgreSQL safety net
+      # rather than the fast inner-loop suite above.
+      - name: Run the startup benchmark (includes a native Postgres via Testcontainers)
+        run: ./gradlew :integration-tests:benchmark --console=plain

@@ -1,0 +1,22 @@
+{
+  "name": "@pglite-jvm/runtime",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/server.ts",
+    "start": "bun run src/server.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "bundle": "bun build src/server.ts --target=bun --format=esm --outfile dist/pglite-runtime-bundle.js",
+    "build": "bun build src/server.ts --compile --outfile dist/pglite-runtime"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.4",
+    "@electric-sql/pglite-socket": "0.2.7"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/bun": "1.3.14"
+  }
+}
