@@ -1,0 +1,22 @@
+# Local build artifacts
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# JVM builds
+jvm/.gradle/
+jvm/**/build/
+jvm/.kotlin/
+jvm/**/bin/
+
+# Test runtime dirs
+.tmp/
+.runtime/
+litegres-test-runtime-*/
+coverage/
+
+# Git
+.git/
+.gitignore
+.github/

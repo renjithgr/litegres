@@ -4,114 +4,116 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build and test (Linux x86-64)
+  test:
+    name: Test (Linux x86-64)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Bun
+      - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Install runtime dependencies (bun install --frozen-lockfile)
-        working-directory: litegres-runtime
+      - name: Install dependencies (frozen lockfile)
         run: bun install --frozen-lockfile
 
-      - name: Type-check the runtime
-        working-directory: litegres-runtime
-        run: bunx tsc --noEmit
+      - name: Typecheck
+        run: bun run typecheck
 
-      - name: Run runtime bun:test suite
-        working-directory: litegres-runtime
-        run: bun test
+      - name: Lint
+        run: bun run lint
 
-      - name: Build the standalone runtime executable
-        working-directory: litegres-runtime
+      - name: Unit tests
+        run: bun test test/unit
+
+      - name: Integration tests
+        run: bun test test/integration
+
+      - name: Compatibility tests
+        run: bun test test/compatibility
+
+      - name: Build standalone executable
         run: bun run build
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Verify executable from a clean directory
+        run: |
+          CLEAN_DIR=$(mktemp -d)
+          cp dist/litegresd "$CLEAN_DIR/"
+          cd "$CLEAN_DIR"
+          LITEGRES_RUNTIME_DIR="$CLEAN_DIR/rt" ./litegresd version
+          LITEGRES_RUNTIME_DIR="$CLEAN_DIR/rt" ./litegresd start --background
+          LITEGRES_RUNTIME_DIR="$CLEAN_DIR/rt" ./litegresd status --json | grep '"state": "READY"'
+          LITEGRES_RUNTIME_DIR="$CLEAN_DIR/rt" ./litegresd stop
 
-      - name: Run JVM unit tests (builds + packages the runtime as a side effect)
-        run: ./gradlew test --console=plain
+      - name: Process-level tests (compiled binary)
+        env:
+          LITEGRES_BIN: ${{ github.workspace }}/dist/litegresd
+        run: bun test test/process
 
-      - name: Run JDBC/JUnit5/Spring/Flyway/jOOQ integration tests against the Bun runtime
-        run: ./gradlew :integration-tests:integrationTest --console=plain
-
-      - name: Run the compiled standalone executable integration test
-        run: >
-          ./gradlew :integration-tests:integrationTest --console=plain
-          --tests "*StandaloneExecutableIntegrationTest*"
-
-      - name: Upload test reports
-        if: always()
+      - name: Upload diagnostic logs on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
-          path: '**/build/reports/tests/**'
-          retention-days: 7
+          name: litegres-diag-logs
+          path: |
+            /tmp/litegres-*.log
+            **/*.log
+          if-no-files-found: ignore
 
-  native-postgres-compatibility:
-    name: Native PostgreSQL compatibility (Testcontainers)
+  jvm:
+    name: JVM client + JUnit 5 extension (Linux x86-64)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Bun
+      - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Install runtime dependencies
-        working-directory: litegres-runtime
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Build standalone executable
+        run: bun run build
 
-      # Runs on every push/PR by default; consider gating this job to release
-      # branches once the compatibility suite grows, since it needs Docker and
-      # is meant as a slower, native-PostgreSQL safety net rather than the fast
-      # inner-loop suite above. Can also be run on demand via workflow_dispatch.
-      - name: Run the startup benchmark (includes a native Postgres via Testcontainers)
-        run: ./gradlew :integration-tests:benchmark --console=plain
-
-      - name: Publish benchmark results to the job summary
-        if: always()
+      - name: Start daemon
+        env:
+          LITEGRES_RUNTIME_DIR: ${{ runner.temp }}/litegres-rt
         run: |
-          if [ -f integration-tests/build/benchmark-results.md ]; then
-            cat integration-tests/build/benchmark-results.md >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Runner: \`${{ runner.os }}\`/\`${{ runner.arch }}\` on GitHub-hosted \`ubuntu-latest\`, native Docker (no Docker-Desktop-style VM overhead)." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No benchmark-results.md was produced." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          mkdir -p "$LITEGRES_RUNTIME_DIR"
+          ./dist/litegresd start --background
+          sleep 1
+          ./dist/litegresd status --json | grep '"state": "READY"'
 
-      - name: Upload benchmark results
+      - name: JVM build + tests
+        env:
+          LITEGRES_RUNTIME_DIR: ${{ runner.temp }}/litegres-rt
+        run: |
+          cd jvm
+          ./gradlew --no-daemon build test
+
+      - name: Stop daemon
         if: always()
+        env:
+          LITEGRES_RUNTIME_DIR: ${{ runner.temp }}/litegres-rt
+        run: ./dist/litegresd stop || true
+
+      - name: Upload JVM test reports on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
-          path: integration-tests/build/benchmark-results.md
-          retention-days: 30
+          name: litegres-jvm-reports
+          path: jvm/**/build/reports/tests/**
+          if-no-files-found: ignore

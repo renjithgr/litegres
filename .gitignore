@@ -1,20 +1,13 @@
-# Gradle
-.gradle/
-build/
-!gradle/wrapper/gradle-wrapper.jar
-
-# Kotlin / IDE
-.idea/
-*.iml
-out/
-
-# Node / Bun
 node_modules/
-litegres-runtime/dist/
-bun-debug.log
-
-# OS
-.DS_Store
-
-# Logs
+dist/
 *.log
+.DS_Store
+coverage/
+.tmp/
+.runtime/
+litegres-test-runtime-*/
+# JVM builds
+jvm/.gradle/
+jvm/**/build/
+jvm/**/bin/
+jvm/.kotlin/

@@ -1,0 +1,12 @@
+{
+  "name": "example-parallel-test-runner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@litegres/client": "file:../../clients/typescript",
+    "pg": "^8.14.1"
+  }
+}

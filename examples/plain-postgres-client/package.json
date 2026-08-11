@@ -1,0 +1,12 @@
+{
+  "name": "example-plain-postgres-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.ts"
+  },
+  "dependencies": {
+    "@litegres/client": "file:../../clients/typescript",
+    "pg": "^8.14.1"
+  }
+}

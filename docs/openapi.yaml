@@ -1,0 +1,525 @@
+openapi: 3.1.0
+info:
+  title: Litegres Control API
+  version: 0.1.0
+  description: Control plane for the Litegres local database daemon. Creates,
+    clones, inspects, leases and destroys disposable PostgreSQL-compatible
+    databases backed by PGlite.
+servers:
+  - url: http://127.0.0.1:49100
+tags:
+  - name: health
+  - name: status
+  - name: sessions
+  - name: databases
+  - name: templates
+  - name: daemon
+paths:
+  /health/live:
+    get:
+      tags:
+        - health
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Process and HTTP server are functioning.
+  /health/ready:
+    get:
+      tags:
+        - health
+      summary: Readiness probe
+      security: []
+      responses:
+        "200":
+          description: Litegres can accept database creation requests.
+        "503":
+          description: Daemon is not ready (draining, starting, stopped).
+  /v1/status:
+    get:
+      tags:
+        - status
+      summary: Daemon status
+      security: []
+      responses:
+        "200":
+          description: Status snapshot (no secrets).
+  /v1/sessions:
+    post:
+      tags:
+        - sessions
+      summary: Create a session
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: Session created; leaseToken returned once.
+    get:
+      tags:
+        - sessions
+      summary: List sessions
+      security:
+        - daemonToken: []
+      responses:
+        "200":
+          description: Session list (no lease tokens).
+  /v1/sessions/{sessionId}:
+    get:
+      tags:
+        - sessions
+      summary: Get a session
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session descriptor.
+        "404":
+          description: Session not found.
+    delete:
+      tags:
+        - sessions
+      summary: Close a session and destroy its databases
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Closed (idempotent).
+  /v1/sessions/{sessionId}/renew:
+    post:
+      tags:
+        - sessions
+      summary: Renew a session lease
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttlSeconds:
+                  type: integer
+      responses:
+        "200":
+          description: Renewed session with new expiresAt.
+  /v1/databases:
+    post:
+      tags:
+        - databases
+      summary: Create a disposable database (empty or from a template)
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDatabaseRequest"
+      responses:
+        "201":
+          description: Database ready; connection credentials returned once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatabaseWithConnection"
+        "409":
+          description: Capacity or state conflict.
+        "429":
+          description: Capacity exhausted.
+    get:
+      tags:
+        - databases
+      summary: List databases
+      security:
+        - daemonToken: []
+      parameters:
+        - name: sessionId
+          in: query
+          schema:
+            type: string
+        - name: templateId
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: expired
+          in: query
+          schema:
+            type: boolean
+        - name: application
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Database list (no credentials).
+  /v1/databases/{databaseId}:
+    get:
+      tags:
+        - databases
+      summary: Get a database
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      parameters:
+        - name: databaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Database descriptor (no credentials).
+        "404":
+          description: Not found.
+    delete:
+      tags:
+        - databases
+      summary: Destroy a database (idempotent)
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      parameters:
+        - name: databaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Destroyed or already absent.
+  /v1/databases/{databaseId}/renew:
+    post:
+      tags:
+        - databases
+      summary: Renew a database lease
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      parameters:
+        - name: databaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttlSeconds:
+                  type: integer
+      responses:
+        "200":
+          description: Renewed database with new expiresAt.
+  /v1/databases/{databaseId}/exec:
+    post:
+      tags:
+        - databases
+      summary: Administrative SQL execution
+      security:
+        - daemonToken: []
+        - leaseToken: []
+      parameters:
+        - name: databaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sql:
+                  type: string
+                parameters:
+                  type: array
+              required:
+                - sql
+      responses:
+        "200":
+          description: Query result.
+        "408":
+          description: Execution timeout.
+  /v1/templates:
+    post:
+      tags:
+        - templates
+      summary: Start provisioning a template
+      security:
+        - daemonToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTemplateRequest"
+      responses:
+        "201":
+          description: Template provisioning; provisioningDatabase returned once.
+    get:
+      tags:
+        - templates
+      summary: List templates
+      security:
+        - daemonToken: []
+      responses:
+        "200":
+          description: Template list.
+  /v1/templates/{fingerprint}:
+    put:
+      tags:
+        - templates
+      summary: Create a template from statements (idempotent by fingerprint)
+      security:
+        - daemonToken: []
+      parameters:
+        - name: fingerprint
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                initialization:
+                  type: object
+                metadata:
+                  type: object
+      responses:
+        "200":
+          description: Template ready (existing or newly created).
+  /v1/templates/{templateId}:
+    get:
+      tags:
+        - templates
+      summary: Get a template
+      security:
+        - daemonToken: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Template descriptor.
+        "404":
+          description: Not found.
+    delete:
+      tags:
+        - templates
+      summary: Destroy a template (idempotent)
+      security:
+        - daemonToken: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Destroyed or already absent.
+  /v1/templates/{templateId}/finalize:
+    post:
+      tags:
+        - templates
+      summary: Finalize a provisioning template
+      security:
+        - daemonToken: []
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Template is READY and immutable.
+  /v1/gc:
+    post:
+      tags:
+        - daemon
+      summary: Run one reaper pass
+      security:
+        - daemonToken: []
+      responses:
+        "200":
+          description: Reaper report.
+  /v1/shutdown:
+    post:
+      tags:
+        - daemon
+      summary: Graceful daemon shutdown
+      security:
+        - daemonToken: []
+      responses:
+        "200":
+          description: Shutdown initiated.
+components:
+  securitySchemes:
+    daemonToken:
+      type: http
+      scheme: bearer
+      description: Daemon control token (from the runtime token file).
+    leaseToken:
+      type: apiKey
+      in: header
+      name: X-Litegres-Lease-Token
+      description: Session lease token.
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            requestId:
+              type: string
+            details:
+              type: object
+          required:
+            - code
+            - message
+            - requestId
+    CreateSessionRequest:
+      type: object
+      properties:
+        client:
+          type: object
+          properties:
+            name:
+              type: string
+            version:
+              type: string
+            pid:
+              type: integer
+            framework:
+              type: string
+        ttlSeconds:
+          type: integer
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    CreateDatabaseRequest:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        templateId:
+          type: string
+        storage:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - memory
+        ttlSeconds:
+          type: integer
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        initialization:
+          type: object
+          properties:
+            statements:
+              type: array
+              items:
+                type: string
+    CreateTemplateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        fingerprint:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - fingerprint
+    Connection:
+      type: object
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+        database:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+        postgresUrl:
+          type: string
+        jdbcUrl:
+          type: string
+    DatabaseWithConnection:
+      type: object
+      properties:
+        id:
+          type: string
+        sessionId:
+          type: string
+        templateId:
+          type: string
+        status:
+          type: string
+        connection:
+          $ref: "#/components/schemas/Connection"
+        createdAt:
+          type: string
+        expiresAt:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string

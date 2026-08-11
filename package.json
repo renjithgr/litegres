@@ -1,0 +1,35 @@
+{
+  "name": "litegres",
+  "version": "0.1.0",
+  "description": "A local daemon that creates disposable PostgreSQL-compatible databases backed by PGlite",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "litegresd": "dist/litegresd"
+  },
+  "scripts": {
+    "dev": "bun run src/main.ts run",
+    "start": "bun run src/main.ts run",
+    "test": "bun test test/",
+    "typecheck": "bunx tsc --noEmit",
+    "lint": "bun run scripts/lint.ts",
+    "build": "bun run scripts/build.ts",
+    "docker-build": "bun run scripts/docker-build.ts",
+    "integration-test": "bun test test/integration",
+    "process-test": "bun test test/process",
+    "benchmark": "bun run scripts/benchmark.ts",
+    "unit-test": "bun test test/unit",
+    "compatibility-test": "bun test test/compatibility"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.4",
+    "@electric-sql/pglite-socket": "0.2.7",
+    "pg": "^8.14.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.8.0",
+    "yaml": "^2.9.0"
+  }
+}
