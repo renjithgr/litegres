@@ -371,15 +371,14 @@ Measured with `spike/phase0` (Spring Boot + Flyway + JPA suite, 48 tests):
   runtime dir; use `litegresd stop` first or a different `--runtime-dir`.
 - **"No PostgreSQL server configured and Docker is not available"** — pass
   `--postgres-url` (or `LITEGRES_POSTGRES_URL`) or start Docker.
-- **My databases vanished on daemon start** — the daemon drops every database
-  whose name starts with `--name-prefix` (default `litegres_`) to clean up
-  after crashes. Use a distinct prefix per daemon and never one that matches
-  databases you care about.
+- **My databases vanished on daemon start** — on startup the daemon drops
+  databases whose name starts with `--name-prefix` (default `litegres_`) and
+  whose owning daemon is gone, to clean up after crashes. Databases of a live
+  daemon are safe. Never use a prefix that matches databases you care about.
 
 ## Roadmap
 
-- Spring Boot test module (`@ServiceConnection`) and a per-worker reset endpoint
-- Java client that downloads and starts `litegresd` itself
+- Publish `litegresd` release binaries and the JVM modules (Maven Central), then let the launcher download the binary
 - Remove the PGlite engine once native has proven itself
 - Prometheus metrics endpoint
 - Rust / Go / Python / Ruby clients and framework extensions

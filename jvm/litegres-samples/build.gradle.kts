@@ -22,8 +22,14 @@ dependencies {
     implementation("com.zaxxer:HikariCP:6.2.1")
 }
 
+// Launcher settings flow from Gradle properties to the test JVM, e.g.
+//   -PlitegresBin=../dist/litegresd -PlitegresPostgresUrl=postgresql://...
+val launcherProps = mapOf("litegresBin" to "litegres.bin", "litegresPostgresUrl" to "litegres.postgresUrl")
+
 tasks.test {
     useJUnitPlatform()
+    // Needs its own JVM and runtime dir; see autoStartTest.
+    exclude("**/LitegresAutoStartTest*")
     // The samples need a running litegresd daemon; point them at its runtime
     // dir with -PlitegresRuntimeDir=/path (see jvm/README.md). A Gradle
     // property is used because it flows to the daemon per-invocation, unlike
@@ -36,4 +42,18 @@ tasks.test {
         events("passed", "failed", "skipped")
         showStandardStreams = false
     }
+}
+
+// Starts a litegresd from nothing (own runtime dir), so it runs in its own JVM.
+tasks.register<Test>("autoStartTest") {
+    description = "Tests DaemonLauncher / LitegresClients.connectOrStart() against a real litegresd."
+    group = "verification"
+    useJUnitPlatform()
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    include("**/LitegresAutoStartTest*")
+    val rt = layout.buildDirectory.dir("autostart-runtime").get().asFile.absolutePath
+    systemProperty("litegres.runtimeDir", rt)
+    launcherProps.forEach { (prop, sys) -> project.findProperty(prop)?.let { systemProperty(sys, it.toString()) } }
+    testLogging { events("passed", "failed", "skipped") }
 }

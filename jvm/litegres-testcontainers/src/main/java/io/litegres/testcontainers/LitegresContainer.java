@@ -459,6 +459,11 @@ public class LitegresContainer extends GenericContainer<LitegresContainer>
         }
 
         @Override
+        public io.litegres.client.model.Database resetDatabase(String databaseId) {
+            return rewrite(delegate.resetDatabase(databaseId));
+        }
+
+        @Override
         public void deleteDatabase(String databaseId) {
             delegate.deleteDatabase(databaseId);
         }

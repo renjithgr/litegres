@@ -1,0 +1,2 @@
+org.springframework.test.context.ContextCustomizerFactory=io.litegres.spring.LitegresContextCustomizerFactory
+org.springframework.test.context.TestExecutionListener=io.litegres.spring.LitegresTestExecutionListener

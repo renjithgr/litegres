@@ -46,9 +46,10 @@ import io.litegres.client.model.SessionWithLeaseToken;
  *   <li>{@code afterAll}: close the session, destroying everything it owned.</li>
  * </ul>
  *
- * The daemon must be running ({@code litegresd run}); discovery honors
- * {@code LITEGRES_RUNTIME_DIR} / {@code XDG_RUNTIME_DIR} / the default
- * runtime dir, matching the daemon.
+ * The daemon is discovered in {@code LITEGRES_RUNTIME_DIR} /
+ * {@code XDG_RUNTIME_DIR} / the default runtime dir, matching the daemon. If
+ * none is running and a {@code litegresd} binary can be found it is started
+ * (see {@code io.litegres.client.DaemonLauncher}).
  */
 public final class LitegresExtension implements BeforeEachCallback, AfterEachCallback, AfterAllCallback, ParameterResolver {
 
@@ -224,7 +225,7 @@ public final class LitegresExtension implements BeforeEachCallback, AfterEachCal
                 if (controlUrl != null && controlToken != null) {
                     return LitegresClients.connectTo(controlUrl, controlToken);
                 }
-                return LitegresClients.connect();
+                return LitegresClients.connectOrStart();
             } catch (LitegresException e) {
                 throw new LitegresException(
                         "DAEMON_NOT_FOUND",

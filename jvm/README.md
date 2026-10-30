@@ -5,9 +5,11 @@ daemon.
 
 ```
 jvm/
-├── litegres-client/    io.litegres.client — control-plane client (JDK HTTP + Jackson)
-├── litegres-junit5/    io.litegres.junit5 — per-test disposable databases
-└── litegres-samples/   sample JUnit tests (need a running daemon)
+├── litegres-client/            io.litegres.client — control-plane client (JDK HTTP + Jackson), daemon launcher
+├── litegres-junit5/            io.litegres.junit5 — per-test disposable databases
+├── litegres-spring-boot-test/  io.litegres.spring — @LitegresTest for Spring (Boot) tests
+├── litegres-testcontainers/    daemon in Docker, Testcontainers style
+└── litegres-samples/           sample JUnit tests (need a daemon or a litegresd binary)
 ```
 
 ## Requirements
@@ -19,6 +21,61 @@ jvm/
   JVM property `litegres.runtimeDir` (set by `-PlitegresRuntimeDir`),
   `LITEGRES_RUNTIME_DIR`, `XDG_RUNTIME_DIR`, then the platform default
   runtime dir. See “What `-PlitegresRuntimeDir=<path>` means” below.
+
+## Spring Boot tests (`litegres-spring-boot-test`)
+
+```java
+@SpringBootTest
+@LitegresTest(migrations = "classpath:db/migration")   // Flyway -> template, built once
+class AccountRepositoryTest {
+    @Autowired JdbcTemplate jdbc;
+    ...
+}
+```
+
+`@LitegresTest` starts (or finds) the daemon, creates **one database per JVM**
+for each distinct configuration, and sets `spring.datasource.url/username/password`
+to it. Forked test JVMs (`maxParallelForks`) therefore never share state, and
+every class in a JVM with the same configuration shares **one cached Spring
+context** and one database.
+
+Isolation inside a JVM is `reset`:
+
+| `reset` | behaviour |
+|---|---|
+| `BEFORE_CLASS` (default) | restore the database before each class that is not its first user |
+| `BEFORE_EACH` | restore before every test method (~15 ms): full isolation with a cached context |
+| `NEVER` | you clean up (e.g. `@Transactional`) |
+
+A reset restores the database from its template under the same name and
+credentials, terminates its connections, and soft-evicts a Hikari pool so the
+cached context keeps working. Other pools must validate connections on borrow.
+It needs the native engine (`501` on pglite).
+
+Sources for the database (at most one): `migrations` (Flyway locations, hashed
+into the template fingerprint, rebuilt only when a migration changes, shared by
+all forks), `statements`, or `templateId`. The module depends only on
+`spring-test` (Flyway is optional), so it works with Spring Boot 3 and 4.
+
+## Starting the daemon from tests
+
+`LitegresClients.connectOrStart()` (used by `LitegresExtension` and
+`@LitegresTest`) connects to a running daemon or starts one detached and
+leaves it running, so every JVM and run shares it (`litegresd stop` ends it).
+Parallel forks are serialized by a file lock. Binary lookup: `-Dlitegres.bin`,
+`LITEGRES_BIN`, `litegresd` on `PATH`, then `dist/litegresd` in a parent of the
+working directory. `-Dlitegres.postgresUrl=...` (or `LITEGRES_POSTGRES_URL`)
+selects the PostgreSQL server; without it the daemon starts a throwaway
+container. `-Dlitegres.autoStart=false` disables starting.
+
+```kotlin
+// build.gradle.kts of your project
+tasks.test {
+    systemProperty("litegres.bin", "/usr/local/bin/litegresd")
+    systemProperty("litegres.postgresUrl", "postgresql://postgres:postgres@127.0.0.1:5432/postgres")
+    maxParallelForks = 4
+}
+```
 
 ## Build and test
 
@@ -176,4 +233,5 @@ DatabaseWithConnection clone = client.createDatabase(
 |---|---|---|
 | `litegres-client` | control-plane client (JDK HttpClient, Jackson) | jackson-databind |
 | `litegres-junit5` | JUnit 5 extension | litegres-client, junit-jupiter-api |
+| `litegres-spring-boot-test` | `@LitegresTest` for Spring tests | litegres-client, spring-test (compileOnly), flyway-core (optional) |
 | `litegres-samples` | runnable samples (JUnit, JDBC, HikariCP) | junit-jupiter, postgresql, HikariCP |

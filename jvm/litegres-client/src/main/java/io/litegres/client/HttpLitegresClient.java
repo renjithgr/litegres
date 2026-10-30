@@ -135,6 +135,11 @@ final class HttpLitegresClient implements LitegresClient {
     }
 
     @Override
+    public Database resetDatabase(String databaseId) {
+        return databaseOf(request("POST", "/v1/databases/" + encode(databaseId) + "/reset", null));
+    }
+
+    @Override
     public void deleteDatabase(String databaseId) {
         request("DELETE", "/v1/databases/" + encode(databaseId), null);
     }

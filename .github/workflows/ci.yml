@@ -146,6 +146,13 @@ jobs:
           cd jvm
           ./gradlew --no-daemon build test
 
+      - name: Daemon launcher test (starts litegresd from nothing)
+        run: |
+          cd jvm
+          ./gradlew --no-daemon :litegres-samples:autoStartTest \
+            -PlitegresBin=${{ github.workspace }}/dist/litegresd \
+            -PlitegresPostgresUrl=postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
       - name: Stop daemon
         if: always()
         env:

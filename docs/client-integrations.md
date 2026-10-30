@@ -19,8 +19,10 @@ The pattern in every ecosystem is the same:
 
 ## JVM / Spring Boot
 
-Implemented: `jvm/litegres-client` (Java 17, JDK HttpClient + Jackson) and
-`jvm/litegres-junit5`. See `jvm/README.md`.
+Implemented: `jvm/litegres-client` (Java 17, JDK HttpClient + Jackson, with a
+launcher that starts `litegresd` on demand), `jvm/litegres-junit5`, and
+`jvm/litegres-spring-boot-test` (`@LitegresTest`: one database per JVM, Flyway
+templates, reset between tests on a cached context). See `jvm/README.md`.
 
 ```java
 try (LitegresClient client = LitegresClients.connect()) {

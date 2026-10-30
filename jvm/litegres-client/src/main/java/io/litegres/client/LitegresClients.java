@@ -26,6 +26,25 @@ public final class LitegresClients {
      * Connect to an explicit control URL with an explicit daemon token.
      * Verifies readiness ({@code /health/ready}) before returning.
      */
+    /**
+     * Connect to the daemon, starting one if none is running.
+     *
+     * <p>Behaves like {@link #connect()} when a daemon is up. Otherwise it
+     * looks for a {@code litegresd} binary (see {@link DaemonLauncher}) and
+     * starts it detached, so that all test JVMs share it. Set
+     * {@code -Dlitegres.autoStart=false} to disable starting.</p>
+     */
+    public static LitegresClient connectOrStart() {
+        try {
+            return connect();
+        } catch (LitegresException e) {
+            if ("false".equalsIgnoreCase(System.getProperty("litegres.autoStart"))) {
+                throw e;
+            }
+            return DaemonLauncher.startAndConnect(e);
+        }
+    }
+
     public static LitegresClient connectTo(String controlUrl, String token) {
         LitegresClient client = new HttpLitegresClient(controlUrl, token, null, defaultHttp());
         try {

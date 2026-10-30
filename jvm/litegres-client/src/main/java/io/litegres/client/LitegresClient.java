@@ -43,6 +43,13 @@ public interface LitegresClient extends AutoCloseable {
 
     Database renewDatabase(String databaseId, int ttlSeconds);
 
+    /**
+     * Restore a database to its initial state (its template, or empty plus its
+     * initialization statements) under the same name and credentials. Open
+     * connections are terminated. Requires the native engine.
+     */
+    Database resetDatabase(String databaseId);
+
     void deleteDatabase(String databaseId);
 
     ExecResult exec(String databaseId, String sql, List<?> parameters);
