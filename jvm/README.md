@@ -50,7 +50,6 @@ Isolation inside a JVM is `reset`:
 A reset restores the database from its template under the same name and
 credentials, terminates its connections, and soft-evicts a Hikari pool so the
 cached context keeps working. Other pools must validate connections on borrow.
-It needs the native engine (`501` on pglite).
 
 Sources for the database (at most one): `migrations` (Flyway locations, hashed
 into the template fingerprint, rebuilt only when a migration changes, shared by

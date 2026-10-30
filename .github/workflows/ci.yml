@@ -23,9 +23,10 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      # The native engine runs against the service container; the same test
-      # files run again below on the in-process PGlite engine.
+      # Tests, the compiled-binary smoke test and the process tests all use the
+      # service container (the tests would otherwise start their own).
       NATIVE_PG_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      LITEGRES_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v4
 
@@ -46,13 +47,10 @@ jobs:
       - name: Unit tests
         run: bun test test/unit
 
-      - name: Integration tests (native engine)
+      - name: Integration tests
         run: bun test test/integration
         env:
           LITEGRES_TEST_POSTGRES_URL: ${{ env.NATIVE_PG_URL }}
-
-      - name: Integration tests (pglite engine)
-        run: bun test test/integration
 
       - name: Compatibility tests
         run: bun test test/compatibility
@@ -72,12 +70,7 @@ jobs:
           LITEGRES_RUNTIME_DIR="$CLEAN_DIR/rt" ./litegresd status --json | grep '"state": "READY"'
           LITEGRES_RUNTIME_DIR="$CLEAN_DIR/rt" ./litegresd stop
 
-      - name: Process-level tests (compiled binary, pglite engine)
-        env:
-          LITEGRES_BIN: ${{ github.workspace }}/dist/litegresd
-        run: bun test test/process
-
-      - name: Process-level tests (compiled binary, native engine)
+      - name: Process-level tests (compiled binary)
         env:
           LITEGRES_BIN: ${{ github.workspace }}/dist/litegresd
           LITEGRES_TEST_POSTGRES_URL: ${{ env.NATIVE_PG_URL }}

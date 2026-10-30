@@ -14,15 +14,9 @@ import type { Metrics } from "../observability/metrics";
 import type { Logger } from "../observability/logger";
 import type { Reaper } from "../lifecycle/reaper";
 import { isLocalHost } from "../config/config";
-import { join } from "node:path";
-import { readFileSync } from "node:fs";
 import { buildOpenApiDocument } from "./openapi";
 
 export const MAX_BODY_BYTES = 1_048_576; // 1 MiB
-
-// Build-time constant set by scripts/build.ts via define (plain identifier so
-// Bun's --define matches it; source mode falls back to a runtime probe).
-declare const __PGLITE_VERSION__: string | undefined;
 
 export interface ApiContext {
   config: DaemonConfig;
@@ -528,33 +522,11 @@ function statusBody(ctx: ApiContext): Record<string, unknown> {
     runtime: {
       bunVersion: Bun.version,
       engine: ctx.daemon.engine,
-      pgliteVersion: pgliteVersion(),
       postgresVersion: ctx.daemon.postgresVersion ?? "unknown",
       controlUrl: ctx.daemon.controlUrl,
       localOnly: isLocalHost(ctx.config.host),
     },
   };
-}
-
-function pgliteVersion(): string {
-  if (typeof __PGLITE_VERSION__ !== "undefined") return __PGLITE_VERSION__;
-  // Runtime probe when running from source.
-  try {
-    const text = readFileSync(
-      join(nodeModulesPath(), "@electric-sql", "pglite", "package.json"),
-      "utf8",
-    );
-    const pkg = JSON.parse(text) as { version?: string };
-    return pkg.version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-}
-
-function nodeModulesPath(): string {
-  // In source mode node_modules sits beside the repo root; in standalone
-  // mode there is none and the probe fails gracefully to "unknown".
-  return join(import.meta.dir, "..", "..", "node_modules");
 }
 
 // ---------------------------------------------------------------------------

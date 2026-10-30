@@ -9,17 +9,19 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { LitegresClient } from "../../clients/typescript/src/index";
 import pg from "pg";
+import { ensureTestPostgres } from "../helpers";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
 const BIN = process.env.LITEGRES_BIN ?? join(repoRoot, "dist", "litegresd");
-// Engine under test: native when LITEGRES_TEST_POSTGRES_URL is set, else pglite
-// (which also proves the WASM assets are embedded in the standalone binary).
-const ENGINE_ENV = {
-  LITEGRES_ENGINE: process.env.LITEGRES_TEST_POSTGRES_URL ? "native" : "pglite",
-  LITEGRES_POSTGRES_URL: process.env.LITEGRES_TEST_POSTGRES_URL ?? "",
-  LITEGRES_POSTGRES_DOCKER: "false",
-  LITEGRES_NAME_PREFIX: `litegres_proc_${Math.random().toString(36).slice(2, 8)}_`,
-};
+// The daemon under test talks to the disposable PostgreSQL server that
+// test/preload.ts provides.
+async function pgEnv(): Promise<Record<string, string>> {
+  return {
+    LITEGRES_POSTGRES_URL: await ensureTestPostgres(),
+    LITEGRES_POSTGRES_DOCKER: "false",
+    LITEGRES_NAME_PREFIX: `litegres_proc_${Math.random().toString(36).slice(2, 8)}_`,
+  };
+}
 
 interface RunningDaemon {
   proc: Bun.Subprocess;
@@ -53,7 +55,7 @@ async function startDaemon(): Promise<RunningDaemon> {
     cwd: workDir,
     env: {
       ...process.env,
-      ...ENGINE_ENV,
+      ...(await pgEnv()),
       LITEGRES_RUNTIME_DIR: runtimeDir,
       LITEGRES_PORT: String(controlPort),
     },
@@ -191,7 +193,7 @@ describe("compiled litegresd from a clean directory", () => {
       cwd: running.workDir,
       env: {
         ...process.env,
-        ...ENGINE_ENV,
+        ...(await pgEnv()),
         LITEGRES_RUNTIME_DIR: running.runtimeDir,
         LITEGRES_PORT: String(running.controlPort + 1),
       },

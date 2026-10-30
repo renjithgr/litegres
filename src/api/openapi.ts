@@ -5,7 +5,7 @@ export function buildOpenApiDocument(version: string): Record<string, unknown> {
       title: "Litegres Control API",
       version,
       description:
-        "Control plane for the Litegres local database daemon. Creates, clones, inspects, leases and destroys disposable PostgreSQL-compatible databases backed by PGlite.",
+        "Control plane for the Litegres local database daemon. Creates, clones, inspects, leases and destroys disposable, isolated PostgreSQL databases on one PostgreSQL server.",
     },
     servers: [{ url: "http://127.0.0.1:49100" }],
     tags: [
@@ -115,7 +115,7 @@ export function buildOpenApiDocument(version: string): Record<string, unknown> {
         post: {
           tags: ["databases"], summary: "Restore a database to its initial state (same name and credentials; open connections are terminated)", security: [{ daemonToken: [] }, { leaseToken: [] }],
           parameters: [{ name: "databaseId", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": { description: "The reset database descriptor." }, "501": { description: "The engine cannot reset in place (pglite)." } },
+          responses: { "200": { description: "The reset database descriptor." } },
         },
       },
       "/v1/databases/{databaseId}/exec": {

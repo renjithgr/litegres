@@ -85,8 +85,8 @@ curl -s -X POST http://127.0.0.1:49100/v1/databases \
   -H "Content-Type: application/json" \
   -d '{"sessionId":"ses_...","ttlSeconds":600}'
 
-# 5. connect with psql (copy the port from the response)
-psql "postgresql://postgres:generated-secret@127.0.0.1:PORT/postgres"
+# 5. connect with psql (use the postgresUrl from the response)
+psql "<postgresUrl>"
 ```
 
 ## Starting the daemon
@@ -148,12 +148,12 @@ The response contains ordinary connection details:
   "status": "ready",
   "connection": {
     "host": "127.0.0.1",
-    "port": 49152,
+    "port": 5432,
     "database": "postgres",
     "username": "postgres",
     "password": "generated-secret",
-    "postgresUrl": "postgresql://postgres:generated-secret@127.0.0.1:49152/postgres",
-    "jdbcUrl": "jdbc:postgresql://127.0.0.1:49152/postgres?sslmode=disable"
+    "postgresUrl": "postgresql://postgres:secret@127.0.0.1:5432/litegres_1a2b3c4d_db_01k2abcdef",
+    "jdbcUrl": "jdbc:postgresql://127.0.0.1:5432/litegres_1a2b3c4d_db_01k2abcdef?sslmode=disable"
   },
   "createdAt": "2026-08-06T17:45:00Z",
   "expiresAt": "2026-08-06T17:55:00Z",
@@ -169,13 +169,13 @@ responses never include passwords.
 **psql** (data plane is plain PostgreSQL):
 
 ```bash
-psql "postgresql://postgres:generated-secret@127.0.0.1:49152/postgres"
+psql "postgresql://postgres:secret@127.0.0.1:5432/litegres_1a2b3c4d_db_01k2abcdef"
 ```
 
 **JDBC** (data plane is plain PostgreSQL):
 
 ```text
-jdbc:postgresql://127.0.0.1:49152/postgres?sslmode=disable
+jdbc:postgresql://127.0.0.1:5432/litegres_1a2b3c4d_db_01k2abcdef?sslmode=disable
 ```
 
 **Java client + JUnit 5** (see `jvm/`):
@@ -311,7 +311,7 @@ LITEGRES_ENGINE, LITEGRES_POSTGRES_URL, LITEGRES_POSTGRES_DOCKER,
 LITEGRES_KEEP_POSTGRES, LITEGRES_POSTGRES_IMAGE, LITEGRES_NAME_PREFIX
 ```
 
-See [docs/engines.md](docs/engines.md) for the engine options. A JSON config file (`--config-file`) is also supported. Invalid configuration
+See [docs/postgres.md](docs/postgres.md) for the engine options. A JSON config file (`--config-file`) is also supported. Invalid configuration
 fails at startup with actionable errors.
 
 ## Security model
@@ -337,12 +337,8 @@ library behave as on any Postgres. Things to know: clients receive the
 server's admin credentials, all databases share the server's resources
 (`max_connections`, CPU), and there is no TLS. Use a disposable server.
 
-The legacy `--engine pglite` mode (PostgreSQL compiled to WebAssembly) is
-much weaker: it serializes all connections of a database, lacks extensions,
-and breaks Flyway under default settings.
-
 See [docs/compatibility.md](docs/compatibility.md) and
-[docs/engines.md](docs/engines.md).
+[docs/postgres.md](docs/postgres.md).
 
 ## Litegres vs Testcontainers
 
@@ -379,7 +375,6 @@ Measured with `spike/phase0` (Spring Boot + Flyway + JPA suite, 48 tests):
 ## Roadmap
 
 - Publish `litegresd` release binaries and the JVM modules (Maven Central), then let the launcher download the binary
-- Remove the PGlite engine once native has proven itself
 - Prometheus metrics endpoint
 - Rust / Go / Python / Ruby clients and framework extensions
   (integration pattern documented in `docs/client-integrations.md`;
@@ -392,9 +387,9 @@ Measured with `spike/phase0` (Spring Boot + Flyway + JPA suite, 48 tests):
 bun install
 bun run typecheck     # bunx tsc --noEmit
 bun run lint          # typecheck + hygiene checks
-bun test              # unit + integration + compatibility on the PGlite engine
-LITEGRES_TEST_POSTGRES_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres bun test
-                      # same suite on the native engine (disposable server!)
+bun test              # unit + integration + compatibility (starts a throwaway
+                      # postgres container; or set LITEGRES_TEST_POSTGRES_URL to a
+                      # disposable server you provide)
 bun run integration-test
 bun run process-test  # compiled binary from a clean directory
 bun run build         # standalone executable -> dist/litegresd
@@ -405,5 +400,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and the docs in `docs/`.
 
 ## License
 
-Apache-2.0. Litegres bundles PGlite (Apache-2.0), which embeds PostgreSQL
-under its own license.
+Apache-2.0. Litegres bundles no database engine: it uses a PostgreSQL server
+you provide (or the official `postgres` image it starts), under PostgreSQL's own license.

@@ -59,7 +59,7 @@ Health endpoints are unauthenticated. Errors use this shape:
 | GET | `/v1/databases/{id}` | daemon/lease | get (no credentials) |
 | POST | `/v1/databases/{id}/renew` | daemon/lease | renew lease |
 | DELETE | `/v1/databases/{id}` | daemon/lease | destroy (idempotent, 204) |
-| POST | `/v1/databases/{id}/reset` | daemon/lease | restore to the initial state (template or empty + statements) under the same name and credentials; open connections are terminated; native engine only (`501 RESET_NOT_SUPPORTED` on pglite) |
+| POST | `/v1/databases/{id}/reset` | daemon/lease | restore to the initial state (template or empty + statements) under the same name and credentials; open connections are terminated |
 | POST | `/v1/databases/{id}/exec` | daemon/lease | admin SQL (diagnostics/provisioning only) |
 
 `POST /v1/databases` request:
@@ -107,10 +107,9 @@ against its wire endpoint.
 `TEMPLATE_NOT_READY`, `TEMPLATE_CAPACITY_EXHAUSTED`,
 `INVALID_STATE_TRANSITION`, `DATABASE_CREATION_FAILED`,
 `TEMPLATE_CREATION_FAILED`, `DATABASE_CLEANUP_FAILED`,
-`PGLITE_STARTUP_FAILED`, `SOCKET_SERVER_STARTUP_FAILED`,
 `READINESS_CHECK_FAILED`, `DAEMON_ALREADY_RUNNING`, `DAEMON_NOT_READY`,
 `INTERNAL_ERROR`, `PAYLOAD_TOO_LARGE`, `EXEC_FAILED`, `EXEC_TIMEOUT`,
-`EXEC_ROW_LIMIT`, `RESET_NOT_SUPPORTED`.
+`EXEC_ROW_LIMIT`.
 
 ## Limits
 

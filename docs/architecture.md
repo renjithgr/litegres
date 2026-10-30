@@ -2,17 +2,17 @@
 
 ## Overview
 
-Litegres is a long-lived local daemon (`litegresd`) that hosts many isolated
-PGlite database instances inside one Bun process. It exposes two planes:
+Litegres is a long-lived local daemon (`litegresd`) that manages many
+isolated databases on **one real PostgreSQL server**. It exposes two planes:
 
 1. **Control plane** — an HTTP API on `127.0.0.1:49100` for creating,
-   cloning, inspecting, leasing and destroying sessions, templates and
-   databases.
-2. **Data plane** — one TCP port per database speaking the standard
-   PostgreSQL wire protocol.
+   cloning, resetting, inspecting, leasing and destroying sessions,
+   templates and databases.
+2. **Data plane** — the PostgreSQL server itself; each database has its own
+   name on the server's port and speaks the standard wire protocol.
 
-The control plane never carries SQL; normal application queries go over the
-wire protocol to PGlite's socket server.
+The control plane never carries SQL; normal application queries go straight
+to PostgreSQL over the wire protocol.
 
 ## Process model
 
@@ -26,23 +26,22 @@ wire protocol to PGlite's socket server.
 │      │                                                   │
 │  reaper (lease expiry) ← injectable clock                │
 │      │                                                   │
-│  DatabaseFactory ── creates ──► PGlite instance          │
-│      │                            └─ PGLiteSocketServer  │
-│      │                               (port 0 → OS port)  │
-│      └── TemplateRegistry ── snapshot tarball ──► clones │
-└──────────────────────────────────────────────────────────┘
+│  NativeEngine ── CREATE / DROP DATABASE ──┐              │
+└───────────────────────────────────────────┼──────────────┘
+                                            ▼
+                     ┌──────────────────────────────────┐
+                     │ PostgreSQL server                │
+                     │  templates · databases           │
+                     └──────────────────────────────────┘
 ```
 
-- **One process, many PGlite instances.** PGlite's WASM module is shared
-  (compiled once); each instance has its own PGDATA and linear memory. This
-  is the fundamental trade-off: speed and simplicity at the cost of memory.
-- **Port per database.** Each database binds a `PGLiteSocketServer` to
-  `127.0.0.1:0`; the OS assigns an ephemeral port, which the daemon reports.
-  No port is reserved by opening/closing a temporary socket.
-- **Ownership.** The `DatabaseFactory` is the only place that constructs
-  PGlite instances and socket servers. `ManagedDatabase` owns one instance +
-  one server; the API layer only ever sees descriptors and connection
-  strings. Mutable PGlite objects never leave the database-management layer.
+- **One server, many databases.** A database is a `CREATE DATABASE`, a
+  template is a sealed database, a clone is `CREATE DATABASE ... TEMPLATE`.
+  Memory is one server plus a little per connection.
+- **Ownership.** `NativeEngine` is the only place that talks to the server's
+  catalog. `ManagedDatabase` owns an `EngineDatabase` handle; the API layer
+  only ever sees descriptors and connection strings. See
+  [postgres.md](postgres.md) for crash recovery and multiple daemons.
 
 ## Control plane
 
@@ -70,18 +69,18 @@ injectable for tests.
 
 ## Templates
 
-A template is an immutable snapshot (a `dumpDataDir("none")` tarball) of a
-prepared PGlite instance:
+A template is an immutable, prepared database:
 
-- `PUT /v1/templates/{fingerprint}` applies initialization statements and
-  snapshots the result (idempotent by fingerprint).
-- `POST /v1/templates` starts **provisioning**: a live instance with an
-  ephemeral PostgreSQL endpoint so Flyway/Liquibase/Prisma/etc. can run
-  migrations with their own tooling. `POST /v1/templates/{id}/finalize`
-  verifies readiness over the wire, snapshots, closes the endpoint, and marks
-  the template immutable.
-- Clones are `PGlite.create({ loadDataDir: snapshot })` — the official
-  PGlite clone mechanism (the same one `clone()` uses internally).
+- `PUT /v1/templates/{fingerprint}` creates a database, applies the
+  initialization statements and seals it (idempotent by fingerprint).
+- `POST /v1/templates` starts **provisioning**: an empty database returned
+  to the client so Flyway/Liquibase/Prisma/etc. can run migrations with their
+  own tooling. `POST /v1/templates/{id}/finalize` verifies readiness over the
+  wire, disconnects everyone, forbids new connections (`ALLOW_CONNECTIONS
+  false`) and marks the template immutable.
+- Clones are `CREATE DATABASE ... TEMPLATE <template>`; a **reset**
+  (`POST /v1/databases/{id}/reset`) drops and recreates a database from its
+  template under the same name.
 
 ## Shutdown
 
@@ -105,55 +104,16 @@ failures are logged and do not stop the rest.
 creation time (counting in-flight creations, so concurrent bursts cannot
 overshoot). Exhaustion returns `429 DATABASE_CAPACITY_EXHAUSTED`.
 
-## Engines
+## Capacity
 
-The control plane talks to an `Engine` (`src/engine/engine.ts`) and only ever
-holds opaque handles: `EngineDatabase`, `TemplateData`, `ProvisioningHandle`.
-`NativeEngine` hosts databases on one PostgreSQL server
-(`CREATE DATABASE ... TEMPLATE`), `PgliteEngine` hosts one WASM instance per
-database. See [engines.md](engines.md). Everything below about "one process,
-many PGlite instances" and memory describes the PGlite engine only.
-
-## Memory constraints (PGlite engine)
-
-Each PGlite instance allocates a WASM linear memory (default initial size
-128 MiB per instance, growing on demand). With default settings this is the
-dominant resource. Measured on the reference machine, RSS is roughly
-300–400 MiB per *active* instance after use, plus shared baseline. Guidance:
-
-- keep `maxDatabases` small enough for the machine,
-- prefer cloning prepared templates (no initdb cost, ~100 ms) over creating
-  empty databases (~400–500 ms) when many instances are needed,
-- delete databases as soon as tests finish; the reaper handles leaks.
-
-## Future: worker sharding
-
-A later milestone may shard instances across worker processes:
-
-```
-main process
-├── control API
-├── registry and scheduler
-└── workers
-    ├── worker 1 owns databases A–D
-    ├── worker 2 owns databases E–H
-    └── worker 3 owns databases I–L
-```
-
-Resource ownership is already structured so this is possible: `ManagedDatabase`
-is the unit of ownership, factories construct instances, and the registries
-never expose PGlite objects. The MVP deliberately avoids premature worker
-abstractions; the single-process implementation must be stable first.
-
-## Future: shared-port routing
-
-A custom shared-port PostgreSQL router (one port, virtual database routing)
-is explicitly a non-goal for the MVP. The port-per-database model is simpler
-and uses the official socket server unmodified.
+Every database costs a server-side `CREATE DATABASE` (~15 ms from a small
+template) and a few MiB; the limits are `maxDatabases` and the server's own
+`max_connections` and CPU. Parallel test workers run as real, concurrent
+backends.
 
 ## Dependencies
 
-- `@electric-sql/pglite` (0.5.4) — the WASM Postgres engine
-- `@electric-sql/pglite-socket` (0.2.7) — the official socket server
-- `pg` — used only for daemon-side readiness checks and diagnostics
-- no Node.js compatibility layer, no Docker
+- `pg` — admin connections to the server (create/drop/seal databases, exec,
+  readiness checks)
+- a PostgreSQL 13+ server (yours, or a throwaway container the daemon starts)
+- no Node.js compatibility layer

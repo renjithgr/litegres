@@ -31,12 +31,8 @@ export interface DaemonConfig {
   controlToken?: string;
   configFile?: string;
   rejectNonLocalBind: boolean;
-  initialMemoryBytes: number;
-  dataPlanePortBase: number;
-  dataPlanePortCount: number;
   publicHost?: string;
-  publicPortBase?: number;
-  engine: "native" | "pglite";
+  publicPort?: number;
   postgresUrl?: string;
   postgresDocker: boolean;
   keepPostgres: boolean;
@@ -67,12 +63,8 @@ export function defaultConfig(): DaemonConfig {
     logLevel: DEFAULTS.logLevel,
     logFormat: DEFAULTS.logFormat,
     rejectNonLocalBind: true,
-    initialMemoryBytes: DEFAULTS.initialMemoryBytes,
-    dataPlanePortBase: DEFAULTS.dataPlanePortBase,
-    dataPlanePortCount: DEFAULTS.dataPlanePortCount,
     publicHost: DEFAULTS.publicHost,
-    publicPortBase: DEFAULTS.publicPortBase,
-    engine: DEFAULTS.engine,
+    publicPort: DEFAULTS.publicPort,
     postgresUrl: DEFAULTS.postgresUrl,
     postgresDocker: DEFAULTS.postgresDocker,
     keepPostgres: DEFAULTS.keepPostgres,
@@ -156,34 +148,10 @@ export function validateConfig(raw: Record<string, unknown>): DaemonConfig {
   if (!Number.isInteger(cfg.port) || cfg.port < 0 || cfg.port > 65535) {
     errors.push(`port must be an integer in [0, 65535], got ${cfg.port}`);
   }
-  if (!Number.isInteger(cfg.dataPlanePortBase) || cfg.dataPlanePortBase < 1 || cfg.dataPlanePortBase > 65535) {
-    errors.push(`dataPlanePortBase must be an integer in [1, 65535], got ${cfg.dataPlanePortBase}`);
-  }
-  if (!Number.isInteger(cfg.dataPlanePortCount) || cfg.dataPlanePortCount < 0 || cfg.dataPlanePortCount > 2000) {
-    errors.push(`dataPlanePortCount must be an integer in [0, 2000], got ${cfg.dataPlanePortCount}`);
-  }
-  if (cfg.dataPlanePortCount > 0) {
-    const last = cfg.dataPlanePortBase + cfg.dataPlanePortCount - 1;
-    if (last > 65535) {
-      errors.push(
-        `dataPlanePortBase + dataPlanePortCount exceeds 65535 (base ${cfg.dataPlanePortBase}, count ${cfg.dataPlanePortCount})`,
-      );
+  if (cfg.publicPort !== undefined) {
+    if (!Number.isInteger(cfg.publicPort) || cfg.publicPort < 1 || cfg.publicPort > 65535) {
+      errors.push(`publicPort must be an integer in [1, 65535], got ${cfg.publicPort}`);
     }
-    if (cfg.port >= cfg.dataPlanePortBase && cfg.port <= last) {
-      errors.push(
-        `control port ${cfg.port} overlaps the data-plane port range [${cfg.dataPlanePortBase}, ${last}]`,
-      );
-    }
-  }
-  if (cfg.publicPortBase !== undefined) {
-    if (!Number.isInteger(cfg.publicPortBase) || cfg.publicPortBase < 1 || cfg.publicPortBase > 65535) {
-      errors.push(`publicPortBase must be an integer in [1, 65535], got ${cfg.publicPortBase}`);
-    } else if (cfg.publicPortBase + (cfg.dataPlanePortCount > 0 ? cfg.dataPlanePortCount - 1 : 0) > 65535) {
-      errors.push(`publicPortBase + dataPlanePortCount exceeds 65535 (base ${cfg.publicPortBase}, count ${cfg.dataPlanePortCount})`);
-    }
-  }
-  if (cfg.engine !== "native" && cfg.engine !== "pglite") {
-    errors.push(`engine must be "native" or "pglite", got ${String(cfg.engine)}`);
   }
   if (cfg.postgresUrl !== undefined && !/^postgres(ql)?:\/\//.test(String(cfg.postgresUrl))) {
     errors.push("postgresUrl must start with postgres:// or postgresql://");
@@ -269,9 +237,7 @@ export function cliOverridesToConfig(args: Record<string, string | number | bool
     "session-ttl",
     "max-session-ttl",
     "reaper-interval",
-    "data-plane-port-base",
-    "data-plane-port-count",
-    "public-port-base",
+    "public-port",
   ] as const;
   const configKey: Record<string, string> = {
     "max-databases": "maxDatabases",
@@ -282,9 +248,7 @@ export function cliOverridesToConfig(args: Record<string, string | number | bool
     "session-ttl": "defaultSessionTtlSeconds",
     "max-session-ttl": "maximumSessionTtlSeconds",
     "reaper-interval": "reaperIntervalSeconds",
-    "data-plane-port-base": "dataPlanePortBase",
-    "data-plane-port-count": "dataPlanePortCount",
-    "public-port-base": "publicPortBase",
+    "public-port": "publicPort",
     "log-level": "logLevel",
     "log-format": "logFormat",
     "runtime-dir": "runtimeDir",
@@ -301,7 +265,6 @@ export function cliOverridesToConfig(args: Record<string, string | number | bool
     }
   }
   if (args.host !== undefined) cfg.host = String(args.host);
-  if (args.engine !== undefined) cfg.engine = String(args.engine);
   if (args["postgres-url"] !== undefined) cfg.postgresUrl = String(args["postgres-url"]);
   if (args["postgres-image"] !== undefined) cfg.postgresImage = String(args["postgres-image"]);
   if (args["name-prefix"] !== undefined) cfg.namePrefix = String(args["name-prefix"]);

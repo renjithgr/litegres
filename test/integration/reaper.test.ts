@@ -73,13 +73,18 @@ describe("reaper and leases", () => {
     const clock = new ManualClock(Date.now());
     t = await startTestDaemon({ clock });
     const db = await api<{ id: string }>(t, "POST", "/v1/databases", { ttlSeconds: 10 });
-    // Inject a failing PGlite close to simulate a wedged instance.
+    // Inject a failing close to simulate a wedged database (it is still destroyed first).
     const managed = t.daemon.databases.get(db.body.id)!;
-    (managed as unknown as { _pglite: object })._pglite = {
-      close: async () => {
-        throw new Error("simulated close failure");
+    const holder = managed as unknown as { _instance: { close(): Promise<void> } };
+    const real = holder._instance;
+    holder._instance = Object.create(real, {
+      close: {
+        value: async () => {
+          await real.close();
+          throw new Error("simulated close failure");
+        },
       },
-    };
+    });
     clock.advance(11_000);
     const report = await t.daemon.reaper.runOnce();
     expect(report.databasesExpired).toBe(1);

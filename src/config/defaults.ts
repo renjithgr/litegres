@@ -23,31 +23,19 @@ export const DEFAULTS = {
   controlApiReadinessTimeoutMs: 5_000,
   logLevel: "info" as "debug" | "info" | "warn" | "error",
   logFormat: "json" as "json" | "human",
-  // PGlite initial WASM memory per instance. PGlite's default is 128 MiB;
-  // we keep the default and document that it grows on demand.
-  initialMemoryBytes: 128 * 1024 * 1024,
-  // Data-plane (PostgreSQL) port allocation. count = 0 keeps the original
-  // behavior: each database binds an OS-assigned port. Setting a positive
-  // count makes databases bind consecutive ports starting at `base`, which
-  // is required when the daemon runs behind Docker port publishing or any
-  // other fixed-port environment.
-  dataPlanePortBase: 49152,
-  dataPlanePortCount: 0,
   /** Override the host advertised in connection info (Docker: "localhost"). */
   publicHost: undefined as string | undefined,
-  /** Override the advertised data-plane port base (fixed-port mapping). */
-  publicPortBase: undefined as number | undefined,
-  // Engine: "native" (real PostgreSQL, CREATE DATABASE ... TEMPLATE) or
-  // "pglite" (WASM, one instance per database).
-  engine: "native" as "native" | "pglite",
-  /** Admin URL of the PostgreSQL server used by the native engine. */
+  /** Override the PostgreSQL port advertised in connection info (fixed Docker port mapping). */
+  publicPort: undefined as number | undefined,
+  // PostgreSQL server used to host every database (the only engine).
+  /** Admin URL of the PostgreSQL server. */
   postgresUrl: undefined as string | undefined,
   /** Start a managed postgres container when no postgresUrl is given. */
   postgresDocker: true,
   /** Leave the managed postgres container running on shutdown. */
   keepPostgres: false,
   postgresImage: "postgres:17-alpine",
-  /** Prefix of every database the native engine creates (and sweeps on start). */
+  /** Prefix of every database the daemon creates (and sweeps on start). */
   namePrefix: "litegres_",
 } as const;
 

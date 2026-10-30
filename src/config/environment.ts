@@ -30,11 +30,8 @@ export function envValues(env: NodeJS.ProcessEnv = process.env): EnvValues {
     "LITEGRES_CONFIG_FILE",
     "LITEGRES_BIND_CONTROL_TOKEN",
     "LITEGRES_REJECT_NON_LOCAL_BIND",
-    "LITEGRES_DATA_PLANE_PORT_BASE",
-    "LITEGRES_DATA_PLANE_PORT_COUNT",
     "LITEGRES_PUBLIC_HOST",
-    "LITEGRES_PUBLIC_PORT_BASE",
-    "LITEGRES_ENGINE",
+    "LITEGRES_PUBLIC_PORT",
     "LITEGRES_POSTGRES_URL",
     "LITEGRES_POSTGRES_DOCKER",
     "LITEGRES_KEEP_POSTGRES",
@@ -79,19 +76,9 @@ export function envToConfig(env: EnvValues): Record<string, unknown> {
   if (env.LITEGRES_CONFIG_FILE !== undefined) cfg.configFile = env.LITEGRES_CONFIG_FILE;
   if (env.LITEGRES_REJECT_NON_LOCAL_BIND !== undefined)
     cfg.rejectNonLocalBind = env.LITEGRES_REJECT_NON_LOCAL_BIND === "true" || env.LITEGRES_REJECT_NON_LOCAL_BIND === "1";
-  if (env.LITEGRES_DATA_PLANE_PORT_BASE !== undefined)
-    cfg.dataPlanePortBase = parsePosInt(env.LITEGRES_DATA_PLANE_PORT_BASE, "LITEGRES_DATA_PLANE_PORT_BASE");
-  if (env.LITEGRES_DATA_PLANE_PORT_COUNT !== undefined) {
-    const n = Number(env.LITEGRES_DATA_PLANE_PORT_COUNT);
-    if (!Number.isInteger(n) || n < 0) {
-      throw new Error(`Invalid LITEGRES_DATA_PLANE_PORT_COUNT: expected a non-negative integer, got "${env.LITEGRES_DATA_PLANE_PORT_COUNT}"`);
-    }
-    cfg.dataPlanePortCount = n;
-  }
   if (env.LITEGRES_PUBLIC_HOST !== undefined) cfg.publicHost = env.LITEGRES_PUBLIC_HOST;
-  if (env.LITEGRES_PUBLIC_PORT_BASE !== undefined)
-    cfg.publicPortBase = parsePosInt(env.LITEGRES_PUBLIC_PORT_BASE, "LITEGRES_PUBLIC_PORT_BASE");
-  if (env.LITEGRES_ENGINE !== undefined) cfg.engine = env.LITEGRES_ENGINE;
+  if (env.LITEGRES_PUBLIC_PORT !== undefined)
+    cfg.publicPort = parsePosInt(env.LITEGRES_PUBLIC_PORT, "LITEGRES_PUBLIC_PORT");
   if (env.LITEGRES_POSTGRES_URL !== undefined) cfg.postgresUrl = env.LITEGRES_POSTGRES_URL;
   if (env.LITEGRES_POSTGRES_DOCKER !== undefined)
     cfg.postgresDocker = env.LITEGRES_POSTGRES_DOCKER === "true" || env.LITEGRES_POSTGRES_DOCKER === "1";

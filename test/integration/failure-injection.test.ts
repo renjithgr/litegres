@@ -2,13 +2,27 @@
  * Failure injection tests using internal seams.
  */
 import { describe, expect, test, afterAll } from "bun:test";
-import { startTestDaemon, api, TEST_ENGINE, type TestDaemon } from "../helpers";
+import { startTestDaemon, api, type TestDaemon } from "../helpers";
 
 let t: TestDaemon;
 
 afterAll(async () => {
   await t?.close();
 });
+
+/** Make close() destroy the database as usual and then report a failure. */
+function failCloseAfterRealClose(managed: object): void {
+  const holder = managed as unknown as { _instance: { close(): Promise<void> } };
+  const real = holder._instance;
+  holder._instance = Object.create(real, {
+    close: {
+      value: async () => {
+        await real.close();
+        throw new Error("simulated close failure");
+      },
+    },
+  });
+}
 
 describe("failure injection", () => {
   test("daemon shutdown during database creation is safe", async () => {
@@ -33,16 +47,13 @@ describe("failure injection", () => {
     const tpl = await api<{ id: string }>(t, "PUT", "/v1/templates/broken1", {
       initialization: { statements: ["CREATE TABLE t (x int)"] },
     });
-    // Corrupt the template data to simulate a clone failure.
+    // Point the template at a database that does not exist to simulate a clone failure.
     const template = t.daemon.templates.require(tpl.body.id);
-    (template as unknown as { _data: unknown })._data =
-      TEST_ENGINE === "native"
-        ? { engine: "native", databaseName: "litegres_no_such_template" }
-        : { engine: "pglite", tarball: new Blob(["not a pglite tarball"]) };
+    (template as unknown as { _data: unknown })._data = { engine: "native", databaseName: "litegres_no_such_template" };
 
     const failed = await api<{ error: { code: string } }>(t, "POST", "/v1/databases", { templateId: tpl.body.id, ttlSeconds: 600 });
     expect(failed.status).toBe(500);
-    expect(["DATABASE_CREATION_FAILED", "PGLITE_STARTUP_FAILED"]).toContain(failed.body.error.code);
+    expect(failed.body.error.code).toBe("DATABASE_CREATION_FAILED");
 
     // The template itself is untouched and still cloneable from the daemon's
     // remaining healthy state; a fresh database still works.
@@ -55,11 +66,7 @@ describe("failure injection", () => {
     t = await startTestDaemon();
     const db = await api<{ id: string }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
     const managed = t.daemon.databases.get(db.body.id)!;
-    (managed as unknown as { _pglite: object })._pglite = {
-      close: async () => {
-        throw new Error("simulated close failure");
-      },
-    };
+    failCloseAfterRealClose(managed);
     // destroy must not throw; the registry drops the instance.
     await expect(t.daemon.databases.destroy(db.body.id)).resolves.toBeUndefined();
     expect(t.daemon.databases.size).toBe(0);

@@ -1,9 +1,9 @@
 /**
  * Database reset: restore a database to its initial state under the same
- * name and credentials (native engine); a clear 501 on pglite.
+ * name and credentials.
  */
 import { describe, expect, test, afterAll } from "bun:test";
-import { startTestDaemon, api, connectPg, canConnect, TEST_ENGINE, type PgConnection, type TestDaemon } from "../helpers";
+import { startTestDaemon, api, connectPg, canConnect, type PgConnection, type TestDaemon } from "../helpers";
 
 let t: TestDaemon;
 
@@ -23,7 +23,7 @@ async function count(conn: PgConnection, table: string): Promise<number> {
   }
 }
 
-describe.skipIf(TEST_ENGINE !== "native")("database reset (native engine)", () => {
+describe("database reset", () => {
   test("restores the template state with the same name and credentials", async () => {
     t = await startTestDaemon();
     const tpl = await api<{ id: string }>(t, "PUT", "/v1/templates/reset-tpl", {
@@ -117,17 +117,5 @@ describe.skipIf(TEST_ENGINE !== "native")("database reset (native engine)", () =
     });
     expect(right.status).toBe(200);
     expect(await canConnect(db.body.connection)).toBe(true);
-  });
-});
-
-describe.skipIf(TEST_ENGINE !== "pglite")("database reset (pglite engine)", () => {
-  test("is rejected with 501 RESET_NOT_SUPPORTED", async () => {
-    t = await startTestDaemon();
-    const created = await api<Created>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
-    const res = await api<{ error: { code: string } }>(t, "POST", `/v1/databases/${created.body.id}/reset`);
-    expect(res.status).toBe(501);
-    expect(res.body.error.code).toBe("RESET_NOT_SUPPORTED");
-    // the database is still usable
-    expect(await canConnect(created.body.connection)).toBe(true);
   });
 });

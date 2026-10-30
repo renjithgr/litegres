@@ -54,7 +54,7 @@ export function buildConnection(opts: {
   };
 }
 
-export function databaseDescriptor(db: ManagedDatabase, config: Pick<DaemonConfig, "publicHost" | "publicPortBase" | "dataPlanePortBase" | "dataPlanePortCount">): DatabaseDescriptor {
+export function databaseDescriptor(db: ManagedDatabase, config: Pick<DaemonConfig, "publicHost" | "publicPort">): DatabaseDescriptor {
   const advertised = advertisedEndpoint(config, db.host, db.port);
   return {
     id: db.id,

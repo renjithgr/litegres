@@ -26,15 +26,16 @@ import io.litegres.junit5.LitegresDatabase;
 import io.litegres.junit5.LitegresExtension;
 
 /**
- * A Litegres daemon running in Docker, managed by Testcontainers.
+ * Litegres (the daemon plus its PostgreSQL server) running in Docker, managed
+ * by Testcontainers.
  *
- * <p>Everything the daemon needs in a container is pre-configured by the
- * image (see {@code Dockerfile}): the control API and every data-plane
- * (PostgreSQL) endpoint bind {@code 0.0.0.0}, databases live on a fixed
- * in-container port range (49152-49183), and the whole range is published to
- * random host ports. This class rewrites the connection info returned by the
- * control API so tests can connect through the published ports — exactly like
- * a Testcontainers module for any other database.</p>
+ * <p>Everything it needs in a container is pre-configured by the image (see
+ * {@code Dockerfile}): the control API binds {@code 0.0.0.0}, every database
+ * is served by the container's PostgreSQL on port 5432 (told apart by
+ * database name), and both ports are published to random host ports. This
+ * class rewrites the connection info returned by the control API so tests can
+ * connect through the published port — exactly like a Testcontainers module
+ * for any other database.</p>
  *
  * <p>Two usage modes:</p>
  *
@@ -68,10 +69,8 @@ public class LitegresContainer extends GenericContainer<LitegresContainer>
 
     /** Control-plane (HTTP) port inside the container. */
     public static final int CONTROL_PORT = 49100;
-    /** First data-plane (PostgreSQL) port inside the container. */
-    public static final int DATA_PLANE_PORT_BASE = 49152;
-    /** Default data-plane port range size (matches the daemon's maxDatabases). */
-    public static final int DEFAULT_DATA_PLANE_PORT_COUNT = 32;
+    /** PostgreSQL port inside the container; every database is served here. */
+    public static final int POSTGRES_PORT = 5432;
     /** Default image; build it with `bun run docker-build`. */
     public static final String DEFAULT_IMAGE = "litegres/litegresd:0.1.0";
     /** Where the image keeps its runtime dir (daemon.json + token). */
@@ -82,7 +81,6 @@ public class LitegresContainer extends GenericContainer<LitegresContainer>
     private int databaseTtlSeconds = 600;
     private int sessionTtlSeconds = 1800;
     private final Map<String, String> metadata = new LinkedHashMap<>();
-    private int dataPlanePortCount = DEFAULT_DATA_PLANE_PORT_COUNT;
     private String runtimeDir = DEFAULT_RUNTIME_DIR;
 
     private volatile LitegresClient client;
@@ -147,25 +145,7 @@ public class LitegresContainer extends GenericContainer<LitegresContainer>
         return this;
     }
 
-    /**
-     * Number of data-plane ports to expose (default 32, matching the
-     * daemon's maxDatabases). Each database uses one port inside the
-     * container; the range must cover the databases you create concurrently.
-     */
-    public LitegresContainer withDataPlanePortCount(int count) {
-        if (count < 1 || count > 512) {
-            throw new IllegalArgumentException("dataPlanePortCount must be in [1, 512], got " + count);
-        }
-        this.dataPlanePortCount = count;
-        withExposedPorts(exposedPorts());
-        withEnv("LITEGRES_DATA_PLANE_PORT_COUNT", String.valueOf(count));
-        return this;
-    }
-
-    /**
-     * Override the daemon's maxDatabases (default 32). Keep it at or below
-     * the configured data-plane port count.
-     */
+    /** Override the daemon's maxDatabases (default 32). */
     public LitegresContainer withMaxDatabases(int max) {
         withEnv("LITEGRES_MAX_DATABASES", String.valueOf(max));
         return this;
@@ -353,18 +333,13 @@ public class LitegresContainer extends GenericContainer<LitegresContainer>
     }
 
     private Integer[] exposedPorts() {
-        Integer[] ports = new Integer[dataPlanePortCount + 1];
-        ports[0] = CONTROL_PORT;
-        for (int i = 0; i < dataPlanePortCount; i++) {
-            ports[i + 1] = DATA_PLANE_PORT_BASE + i;
-        }
-        return ports;
+        return new Integer[] {CONTROL_PORT, POSTGRES_PORT};
     }
 
     /**
      * Decorates a {@link LitegresClient} so every database/provisioning
-     * connection points at the Docker host's published ports instead of the
-     * in-container addresses the daemon advertises.
+     * connection points at the Docker host's published PostgreSQL port instead
+     * of the in-container address the daemon advertises.
      */
     private final class PortRewritingClient implements LitegresClient {
 

@@ -1,9 +1,9 @@
 /**
  * PostgreSQL wire-protocol readiness checks.
  *
- * Readiness is verified with a real PostgreSQL client over TCP — never
- * through PGlite's direct JavaScript query API alone. The wire endpoint must
- * be usable by external clients before a database is reported ready.
+ * Readiness is verified with a real PostgreSQL client over TCP: the wire
+ * endpoint must be usable by external clients before a database is reported
+ * ready.
  */
 import pg from "pg";
 import { ApiError } from "../api/errors";

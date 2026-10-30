@@ -30,15 +30,15 @@ CREATING → INITIALIZING → READY → CLOSING → CLOSED
                                   (also READY → EXPIRED → CLOSING → CLOSED)
 ```
 
-- `CREATING` — PGlite boot in progress.
-- `INITIALIZING` — initialization statements applied; socket server started.
+- `CREATING` — `CREATE DATABASE` in progress.
+- `INITIALIZING` — initialization statements being applied.
 - `READY` — wire endpoint verified by an external client; usable.
-- `CLOSING` → `CLOSED` — socket server stopped, PGlite closed, deregistered.
+- `CLOSING` → `CLOSED` — database dropped, deregistered.
 - `EXPIRED` — the reaper closed a lease that ended.
 - `FAILED` — creation failed; partial resources cleaned up.
 
 Creation is transactional: if any step fails, every partially created
-resource (instance, socket server, port) is closed before the error returns.
+resource (the partially created database) is dropped before the error returns.
 
 ## Template
 

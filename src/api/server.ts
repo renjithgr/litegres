@@ -3,7 +3,7 @@
  *
  * Responsibilities: routing, request IDs, body parsing with size limits,
  * authentication enforcement, structured error serialization. It never
- * touches PGlite or socket servers directly.
+ * touches engine objects directly.
  */
 import { ApiError, toErrorObject, isApiError } from "./errors";
 import { routes, type ApiContext, type Route } from "./routes";

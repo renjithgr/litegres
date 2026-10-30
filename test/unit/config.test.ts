@@ -89,55 +89,31 @@ describe("configuration", () => {
     expect(() => loadConfig({ env: { LITEGRES_PORT: "abc" }, cli: {} })).toThrow(/LITEGRES_PORT/);
   });
 
-  test("data-plane port range defaults to OS-assigned ports", () => {
+  test("public endpoint overrides default to none", () => {
     const cfg = defaultConfig();
-    expect(cfg.dataPlanePortBase).toBe(49152);
-    expect(cfg.dataPlanePortCount).toBe(0);
     expect(cfg.publicHost).toBeUndefined();
-    expect(cfg.publicPortBase).toBeUndefined();
+    expect(cfg.publicPort).toBeUndefined();
   });
 
-  test("data-plane port range can be configured via env and CLI", () => {
+  test("public host and port can be configured via env and CLI", () => {
     const fromEnv = loadConfig({
-      env: {
-        LITEGRES_DATA_PLANE_PORT_BASE: "50000",
-        LITEGRES_DATA_PLANE_PORT_COUNT: "16",
-        LITEGRES_PUBLIC_HOST: "localhost",
-        LITEGRES_PUBLIC_PORT_BASE: "50000",
-      },
+      env: { LITEGRES_PUBLIC_HOST: "localhost", LITEGRES_PUBLIC_PORT: "5433" },
       cli: {},
     });
-    expect(fromEnv.dataPlanePortBase).toBe(50000);
-    expect(fromEnv.dataPlanePortCount).toBe(16);
     expect(fromEnv.publicHost).toBe("localhost");
-    expect(fromEnv.publicPortBase).toBe(50000);
+    expect(fromEnv.publicPort).toBe(5433);
 
     const fromCli = loadConfig({
       env: {},
-      cli: cliOverridesToConfig({
-        "data-plane-port-base": 51000,
-        "data-plane-port-count": 8,
-        "public-host": "127.0.0.1",
-        "public-port-base": 52000,
-      }),
+      cli: cliOverridesToConfig({ "public-host": "127.0.0.1", "public-port": 5434 }),
     });
-    expect(fromCli.dataPlanePortBase).toBe(51000);
-    expect(fromCli.dataPlanePortCount).toBe(8);
     expect(fromCli.publicHost).toBe("127.0.0.1");
-    expect(fromCli.publicPortBase).toBe(52000);
+    expect(fromCli.publicPort).toBe(5434);
   });
 
-  test("data-plane port range validation rejects bad values", () => {
-    expect(() => validateConfig({ ...defaultConfig(), dataPlanePortBase: 0 })).toThrow(/dataPlanePortBase/);
-    expect(() => validateConfig({ ...defaultConfig(), dataPlanePortCount: -1 })).toThrow(/dataPlanePortCount/);
-    expect(() =>
-      validateConfig({ ...defaultConfig(), dataPlanePortBase: 65000, dataPlanePortCount: 1000 }),
-    ).toThrow(/65535/);
-    // control port overlapping the data-plane range is rejected
-    expect(() =>
-      validateConfig({ ...defaultConfig(), port: 49152, dataPlanePortBase: 49152, dataPlanePortCount: 32 }),
-    ).toThrow(/overlaps/);
-    expect(() => validateConfig({ ...defaultConfig(), publicPortBase: 70000 })).toThrow(/publicPortBase/);
+  test("public port validation rejects bad values", () => {
+    expect(() => validateConfig({ ...defaultConfig(), publicPort: 0 })).toThrow(/publicPort/);
+    expect(() => validateConfig({ ...defaultConfig(), publicPort: 70000 })).toThrow(/publicPort/);
   });
 
   test("docker-friendly configuration validates", () => {
@@ -145,12 +121,46 @@ describe("configuration", () => {
       ...defaultConfig(),
       host: "0.0.0.0",
       rejectNonLocalBind: false,
-      dataPlanePortBase: 49152,
-      dataPlanePortCount: 32,
       publicHost: "localhost",
+      publicPort: 5432,
     });
     expect(cfg.host).toBe("0.0.0.0");
-    expect(cfg.dataPlanePortCount).toBe(32);
     expect(cfg.publicHost).toBe("localhost");
+    expect(cfg.publicPort).toBe(5432);
+  });
+
+  test("PostgreSQL server settings default sensibly and come from env and CLI", () => {
+    const d = defaultConfig();
+    expect(d.postgresUrl).toBeUndefined();
+    expect(d.postgresDocker).toBe(true);
+    expect(d.keepPostgres).toBe(false);
+    expect(d.postgresImage).toBe("postgres:17-alpine");
+    expect(d.namePrefix).toBe("litegres_");
+
+    const fromEnv = loadConfig({
+      env: {
+        LITEGRES_POSTGRES_URL: "postgresql://u:p@db:5432/postgres",
+        LITEGRES_POSTGRES_DOCKER: "false",
+        LITEGRES_NAME_PREFIX: "ci_",
+      },
+      cli: {},
+    });
+    expect(fromEnv.postgresUrl).toBe("postgresql://u:p@db:5432/postgres");
+    expect(fromEnv.postgresDocker).toBe(false);
+    expect(fromEnv.namePrefix).toBe("ci_");
+
+    const fromCli = loadConfig({
+      env: { LITEGRES_NAME_PREFIX: "ci_" },
+      cli: cliOverridesToConfig({ "postgres-url": "postgres://x@y/z", "name-prefix": "cli_", "keep-postgres": true }),
+    });
+    expect(fromCli.postgresUrl).toBe("postgres://x@y/z");
+    expect(fromCli.namePrefix).toBe("cli_"); // CLI beats env
+    expect(fromCli.keepPostgres).toBe(true);
+  });
+
+  test("PostgreSQL server settings are validated", () => {
+    expect(() => validateConfig({ ...defaultConfig(), postgresUrl: "mysql://x" })).toThrow(/postgresUrl/);
+    expect(() => validateConfig({ ...defaultConfig(), namePrefix: "Bad-Prefix" })).toThrow(/namePrefix/);
+    expect(() => validateConfig({ ...defaultConfig(), namePrefix: "" })).toThrow(/namePrefix/);
   });
 });

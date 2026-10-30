@@ -1,10 +1,8 @@
 /**
  * Credential generation and validation.
  *
- * PGlite authenticates with PostgreSQL's `trust` mechanism, so the password
- * is not enforced by the database itself; we still generate unpredictable
- * credentials so connection strings look and behave like ordinary PostgreSQL
- * ones, and so future auth work has a stable place to land.
+ * Control-plane tokens and passwords are generated here. (Database
+ * connections themselves use the PostgreSQL server's own credentials.)
  */
 import { randomBytes } from "node:crypto";
 

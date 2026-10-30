@@ -3,16 +3,14 @@
  * hosts the databases.
  *
  * Registries and managed objects only ever hold the opaque handles defined
- * here; engine-specific objects (PGlite instances, pg pools, ...) never
- * leave their engine.
+ * here; engine-specific objects (pg pools, ...) never leave their engine.
  *
- *  - `native`: one real PostgreSQL server, one database per Litegres
- *    database, templates are real databases cloned with
- *    `CREATE DATABASE ... TEMPLATE`.
- *  - `pglite`: one PGlite (WASM) instance and socket server per database.
+ * The one engine is `native`: one real PostgreSQL server, one database per
+ * Litegres database, templates are real databases cloned with
+ * `CREATE DATABASE ... TEMPLATE`.
  */
 
-export type EngineName = "native" | "pglite";
+export type EngineName = "native";
 
 /** Everything an ordinary PostgreSQL client needs to connect. */
 export interface EngineConnection {
@@ -36,8 +34,7 @@ export interface EngineDatabase extends EngineConnection {
   /**
    * Restore the database to its initial state (its template, or empty plus
    * its initialization statements) under the same name and credentials.
-   * Open connections are terminated. Engines that cannot do this throw
-   * RESET_NOT_SUPPORTED.
+   * Open connections are terminated.
    */
   reset(): Promise<void>;
   /** Destroy the database and release every resource. Must be idempotent. */

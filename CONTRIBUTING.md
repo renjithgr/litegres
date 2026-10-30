@@ -37,7 +37,7 @@ src/               daemon core (config, api, registries, databases, templates,
                    sessions, lifecycle, security, observability, cli)
 clients/typescript first-party TypeScript control-plane client
 test/unit          pure unit tests (no daemon)
-test/integration   real daemons + real PGlite + real pg clients
+test/integration   real daemons + a real PostgreSQL server + real pg clients
 test/process       compiled binary lifecycle from a clean temp dir
 test/compatibility OpenAPI validity + client behavior
 scripts/           build, package, benchmark, lint, openapi generation
@@ -55,17 +55,17 @@ docs/              architecture, control API, lifecycle, security, compatibility
   `src/lifecycle/state-machine.ts`. No boolean flags for lifecycle.
 - **Cleanup is idempotent.** Closing, deleting, and destroying must be safe
   to repeat.
-- **Verify APIs from official docs.** PGlite and pglite-socket are moving
-  targets; before relying on an API, check the current package source/types
-  (as the README describes).
-- **No premature abstractions.** The MVP is deliberately single-process,
-  port-per-database, no worker sharding. Design ownership so that can change
-  later; do not build the workers now.
+- **Verify behavior against a real server.** PostgreSQL semantics (locking,
+  `CREATE DATABASE ... TEMPLATE` rules, `pg_stat_activity`) are subtle; check
+  them with a real server rather than from memory.
+- **No premature abstractions.** One PostgreSQL server, one daemon process.
+  Keep ownership clear (`ManagedDatabase` owns one engine handle) so that can
+  change later; do not build for it now.
 
 ## Testing
 
 - Every feature needs a test that exercises a **real** path: a real daemon,
-  a real PGlite instance, and a real PostgreSQL client over the wire.
+  a real PostgreSQL server, and a real PostgreSQL client over the wire.
   Mocks are acceptable only for seams the spec names (clock, logger).
 - Reaper tests use the `ManualClock`; never sleep to test expiry.
 - Process tests spawn the compiled binary from a clean temporary directory.

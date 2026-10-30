@@ -8,12 +8,12 @@
  *   - database deletion latency
  *   - sequential and parallel creation throughput
  *   - process RSS by active database count
- *   - (optional) separate PGlite subprocess vs Testcontainers, when available
+ *   - (optional) a plain PostgreSQL Testcontainer, when Docker is available
  *
  * Run: bun run scripts/benchmark.ts [--quick]
  */
 import { Daemon } from "../src/daemon";
-import { testConfig } from "../test/helpers";
+import { ensureTestPostgres, testConfig } from "../test/helpers";
 import { LitegresClient } from "../clients/typescript/src/index";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
@@ -57,6 +57,7 @@ async function main(): Promise<void> {
 
   // --- daemon cold startup ---
   console.log("\n1. Daemon cold startup");
+  await ensureTestPostgres(); // LITEGRES_TEST_POSTGRES_URL, or a throwaway container
   const daemon = new Daemon({ config: testConfig({ logLevel: "error" }), noRuntimeDir: true });
   const t0 = performance.now();
   await daemon.start();
@@ -126,20 +127,8 @@ async function main(): Promise<void> {
 
   await daemon.shutdown("benchmark complete");
 
-  // --- separate PGlite process baseline ---
-  console.log("\n7. Separate PGlite process baseline (single boot)");
-  const bootScript = resolve(root, "scripts", "_pglite-boot-baseline.ts");
-  const s = performance.now();
-  const proc = Bun.spawnSync(["bun", bootScript], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  const baselineMs = performance.now() - s;
-  if (proc.exitCode === 0) {
-    record("PGlite boot + close (own process)", baselineMs);
-  } else {
-    console.log(`  (baseline failed: ${proc.stderr.toString().slice(0, 200)})`);
-  }
-
   // --- Testcontainers, only when Docker is available ---
-  console.log("\n8. PostgreSQL Testcontainer (Docker), when available");
+  console.log("\n7. PostgreSQL Testcontainer (Docker), when available");
   const docker = Bun.spawnSync(["docker", "info"], { stdout: "pipe", stderr: "pipe" });
   if (docker.exitCode === 0) {
     console.log("  Docker available; starting postgres:16-alpine container…");

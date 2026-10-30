@@ -66,12 +66,9 @@ Options:
   --runtime-dir <path>         Runtime directory override
   --log-level <level>          debug|info|warn|error
   --log-format <format>        json|human
-  --data-plane-port-base <n>   First data-plane port (default 49152)
-  --data-plane-port-count <n>  Fixed data-plane range size (0 = OS-assigned)
   --public-host <host>         Host advertised in connection info (Docker)
-  --public-port-base <n>       Advertised data-plane port base (Docker)
-  --engine <native|pglite>     Database engine (default native)
-  --postgres-url <url>         Admin URL of the PostgreSQL server (native engine)
+  --public-port <n>            PostgreSQL port advertised in connection info (Docker)
+  --postgres-url <url>         Admin URL of the PostgreSQL server
   --postgres-docker <bool>     Start a postgres container if no URL is given (default true)
   --keep-postgres              Leave the managed postgres container running on exit
   --postgres-image <image>     Image for the managed container (default postgres:17-alpine)
@@ -88,9 +85,8 @@ Environment:
   LITEGRES_MAX_SESSION_TTL_SECONDS, LITEGRES_REAPER_INTERVAL_SECONDS,
   LITEGRES_RUNTIME_DIR, LITEGRES_LOG_LEVEL, LITEGRES_LOG_FORMAT,
   LITEGRES_CONTROL_TOKEN, LITEGRES_CONFIG_FILE,
-  LITEGRES_DATA_PLANE_PORT_BASE, LITEGRES_DATA_PLANE_PORT_COUNT,
-  LITEGRES_PUBLIC_HOST, LITEGRES_PUBLIC_PORT_BASE,
-  LITEGRES_ENGINE, LITEGRES_POSTGRES_URL, LITEGRES_POSTGRES_DOCKER,
+  LITEGRES_PUBLIC_HOST, LITEGRES_PUBLIC_PORT,
+  LITEGRES_POSTGRES_URL, LITEGRES_POSTGRES_DOCKER,
   LITEGRES_KEEP_POSTGRES, LITEGRES_POSTGRES_IMAGE, LITEGRES_NAME_PREFIX
 `;
 

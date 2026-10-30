@@ -1,3 +1,8 @@
+> **Historical.** This is the Phase 0 evidence that led Litegres to drop its
+> in-process WebAssembly engine ("Litegres" below) and use real PostgreSQL
+> only. The workarounds named here (`prepareThreshold=0`, Flyway lock
+> settings) are no longer needed or supported.
+
 # Phase 0 results: Litegres (PGlite/WASM) vs native Postgres 17 + CREATE DATABASE ... TEMPLATE
 
 Machine: Apple Silicon, 14 cores, 48 GiB, OrbStack. Native = `postgres:17-alpine` container, default settings.

@@ -3,8 +3,8 @@ info:
   title: Litegres Control API
   version: 0.1.0
   description: Control plane for the Litegres local database daemon. Creates,
-    clones, inspects, leases and destroys disposable PostgreSQL-compatible
-    databases backed by PGlite.
+    clones, inspects, leases and destroys disposable, isolated PostgreSQL
+    databases on one PostgreSQL server.
 servers:
   - url: http://127.0.0.1:49100
 tags:
@@ -261,8 +261,6 @@ paths:
       responses:
         "200":
           description: The reset database descriptor.
-        "501":
-          description: The engine cannot reset in place (pglite).
   /v1/databases/{databaseId}/exec:
     post:
       tags:

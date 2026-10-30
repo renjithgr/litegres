@@ -1,20 +1,19 @@
 /**
- * Test preload: when running against the native engine, drop every database
- * a test daemon left behind (tests routinely start several daemons without
- * closing them) before and after each test file.
+ * Test preload: tests routinely start several daemons without closing them,
+ * so drop every database a test daemon left behind after each test file.
+ * (The PostgreSQL server itself comes from test/helpers.ts.)
  */
-import { afterAll, beforeAll } from "bun:test";
+import { afterAll } from "bun:test";
 import pg from "pg";
 
-const url = process.env.LITEGRES_TEST_POSTGRES_URL;
-
 async function sweep(): Promise<void> {
-  if (!url) return;
+  const url = process.env.LITEGRES_TEST_POSTGRES_URL;
+  if (!url) return; // no database test ran yet
   const client = new pg.Client({ connectionString: url, ssl: false });
   await client.connect();
   try {
     const res = await client.query<{ datname: string }>(
-      "SELECT datname FROM pg_database WHERE starts_with(datname, 'litegres_test_')",
+      "SELECT datname FROM pg_database WHERE starts_with(datname, 'litegres_test_') OR starts_with(datname, 'litegres_proc_')",
     );
     for (const { datname } of res.rows) {
       await client.query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`).catch(() => {});
@@ -24,5 +23,4 @@ async function sweep(): Promise<void> {
   }
 }
 
-beforeAll(sweep);
 afterAll(sweep);

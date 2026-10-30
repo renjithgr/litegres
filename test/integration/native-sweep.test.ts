@@ -1,11 +1,11 @@
 /**
- * Native engine ownership: a daemon's startup sweep drops only the databases
+ * Ownership: a daemon's startup sweep drops only the databases
  * of daemons that are gone, never those of a live daemon that happens to
  * share the name prefix.
  */
 import { describe, expect, test, afterAll } from "bun:test";
 import pg from "pg";
-import { startTestDaemon, api, canConnect, TEST_ENGINE, TEST_POSTGRES_URL, type PgConnection, type TestDaemon } from "../helpers";
+import { startTestDaemon, api, canConnect, testPostgresUrl, type PgConnection, type TestDaemon } from "../helpers";
 
 const daemons: TestDaemon[] = [];
 const OWNER_LOCK_NAMESPACE = 0x4c474553;
@@ -15,7 +15,7 @@ afterAll(async () => {
 });
 
 async function admin<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
-  const client = new pg.Client({ connectionString: TEST_POSTGRES_URL, ssl: false });
+  const client = new pg.Client({ connectionString: testPostgresUrl(), ssl: false });
   await client.connect();
   try {
     return await fn(client);
@@ -34,7 +34,7 @@ async function start(prefix: string): Promise<TestDaemon> {
   return d;
 }
 
-describe.skipIf(TEST_ENGINE !== "native")("native engine ownership", () => {
+describe("database ownership and orphan sweep", () => {
   test("a second daemon with the same prefix does not drop a live daemon's databases", async () => {
     const prefix = `litegres_test_own${Math.random().toString(36).slice(2, 7)}_`;
     const a = await start(prefix);
@@ -84,7 +84,7 @@ describe.skipIf(TEST_ENGINE !== "native")("native engine ownership", () => {
     await admin((c) => c.query(`CREATE DATABASE "${guarded}"`));
 
     // stand-in for a live foreign daemon: hold its ownership lock
-    const holder = new pg.Client({ connectionString: TEST_POSTGRES_URL, ssl: false });
+    const holder = new pg.Client({ connectionString: testPostgresUrl(), ssl: false });
     await holder.connect();
     await holder.query("SELECT pg_advisory_lock($1::int, $2::int)", [OWNER_LOCK_NAMESPACE, key]);
     try {

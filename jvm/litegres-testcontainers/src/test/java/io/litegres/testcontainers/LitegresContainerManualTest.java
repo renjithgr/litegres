@@ -24,7 +24,7 @@ import io.litegres.client.model.SessionWithLeaseToken;
 
 /**
  * Manual (non-extension) usage: start the Litegres container, talk to its
- * control plane, and connect to databases through the published data-plane
+ * control plane, and connect to databases through the published PostgreSQL
  * ports.
  *
  * <p>Requires Docker and the {@code litegres/litegresd:0.1.0} image (build
@@ -50,7 +50,7 @@ class LitegresContainerManualTest {
     }
 
     @Test
-    void controlPlaneAndDataPlaneWorkThroughPublishedPorts() throws Exception {
+    void controlPlaneAndDatabasesWorkThroughPublishedPorts() throws Exception {
         try (LitegresClient client = litegres.getClient()) {
             SessionWithLeaseToken session = client.createSession(
                     SessionRequest.create().clientName("testcontainers-manual").ttlSeconds(1800));
@@ -84,7 +84,7 @@ class LitegresContainerManualTest {
     }
 
     @Test
-    void databasesGetDistinctPublishedPorts() {
+    void databasesShareTheServerPortButHaveDistinctNames() {
         try (LitegresClient client = litegres.getClient()) {
             SessionWithLeaseToken session = client.createSession(
                     SessionRequest.create().clientName("testcontainers-ports").ttlSeconds(1800));
@@ -94,7 +94,9 @@ class LitegresContainerManualTest {
                     DatabaseRequest.empty().sessionId(session.session().id()).ttlSeconds(600));
             assertNotNull(a.connection());
             assertNotNull(b.connection());
-            assertNotEquals(a.connection().port(), b.connection().port());
+            // one PostgreSQL server: one published port, one database per Litegres database
+            assertEquals(a.connection().port(), b.connection().port());
+            assertNotEquals(a.connection().database(), b.connection().database());
         }
     }
 }

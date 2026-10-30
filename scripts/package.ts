@@ -1,8 +1,9 @@
 /**
  * Package the built executable into a self-contained archive.
  *
- * The compiled litegresd binary embeds the PGlite WASM assets, so a tarball
- * with just the binary works from any clean directory.
+ * The compiled litegresd binary is self-contained, so a tarball with just the
+ * binary works from any clean directory (it still needs a PostgreSQL server or
+ * Docker at run time; see README).
  */
 import { build } from "bun";
 import { readFileSync, mkdirSync, rmSync, existsSync, renameSync } from "node:fs";

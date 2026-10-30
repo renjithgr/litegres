@@ -9,7 +9,7 @@ default.
 - Control API: `127.0.0.1` (default). Non-loopback hosts (`0.0.0.0`, LAN
   addresses) are rejected at startup unless
   `LITEGRES_REJECT_NON_LOCAL_BIND=false` is explicitly set.
-- Data plane (each database): `127.0.0.1` on an ephemeral port.
+- Data plane: the PostgreSQL server's own address (the managed container binds a random loopback port).
 
 ## Authentication
 
@@ -43,11 +43,10 @@ Rules enforced by `AuthManager`:
 - The `exec` endpoint is authenticated and rate/size/timeout-limited; it is
   not the normal data path.
 
-> Note on database passwords: PGlite authenticates via PostgreSQL's `trust`
-> mechanism, so the password is not enforced by the database engine itself.
-> It exists so connection strings look and behave like ordinary PostgreSQL
-> ones and so future auth work has a stable place. This is a documented
-> compatibility limitation (see `docs/compatibility.md`).
+> Note on database credentials: clients receive the **PostgreSQL server's own
+> admin credentials**, not a per-database login. Litegres is a test fixture:
+> point it only at a disposable server (the managed container uses a fixed
+> test password and a loopback-only port). See `docs/postgres.md`.
 
 ## Runtime directory
 

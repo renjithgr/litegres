@@ -1,6 +1,6 @@
 /**
  * Litegres daemon: one long-lived process managing many isolated disposable
- * databases, hosted by a pluggable engine (native PostgreSQL or PGlite).
+ * databases on one real PostgreSQL server (see src/engine/).
  *
  * Wires together configuration, registries, the reaper, the control API,
  * discovery files and graceful shutdown. Exposes a narrow Daemon interface to
@@ -13,7 +13,6 @@ import { SystemClock, type Clock } from "./clock";
 import { loadConfig, type DaemonConfig } from "./config/config";
 import type { Engine } from "./engine/engine";
 import { NativeEngine } from "./engine/native-engine";
-import { PgliteEngine } from "./engine/pglite-engine";
 import { DatabaseRegistry } from "./registry/database-registry";
 import { SessionRegistry } from "./registry/session-registry";
 import { TemplateRegistry } from "./registry/template-registry";
@@ -67,10 +66,7 @@ export class Daemon {
     this.metrics = opts.metrics ?? new Metrics();
     this.startedAt = this.clock.now();
 
-    this.engine =
-      this.config.engine === "pglite"
-        ? new PgliteEngine({ config: this.config, clock: this.clock, metrics: this.metrics })
-        : new NativeEngine({ config: this.config, logger: this.logger.child({ component: "engine" }) });
+    this.engine = new NativeEngine({ config: this.config, logger: this.logger.child({ component: "engine" }) });
     this.databases = new DatabaseRegistry({
       config: this.config,
       clock: this.clock,

@@ -26,8 +26,7 @@ import java.lang.annotation.Target;
  * is restored from its template in ~15 ms (open connections are terminated
  * and a Hikari pool is soft-evicted so the cached context keeps working).</p>
  *
- * <p>Requires the native Litegres engine (reset is not supported on pglite).
- * Choose at most one of {@link #templateId()}, {@link #migrations()} and
+ * <p>Choose at most one of {@link #templateId()}, {@link #migrations()} and
  * {@link #statements()}; with none, the database starts empty.</p>
  */
 @Target(ElementType.TYPE)

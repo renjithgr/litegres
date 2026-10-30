@@ -1,7 +1,7 @@
 {
   "name": "litegres",
   "version": "0.1.0",
-  "description": "A local daemon that creates disposable PostgreSQL-compatible databases backed by PGlite",
+  "description": "A local daemon that hands out disposable, isolated PostgreSQL databases cloned from templates on one PostgreSQL server",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
@@ -22,8 +22,6 @@
     "compatibility-test": "bun test test/compatibility"
   },
   "dependencies": {
-    "@electric-sql/pglite": "0.5.4",
-    "@electric-sql/pglite-socket": "0.2.7",
     "pg": "^8.14.1"
   },
   "devDependencies": {

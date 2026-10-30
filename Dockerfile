@@ -1,19 +1,23 @@
 # syntax=docker/dockerfile:1
 #
-# Litegres daemon container image.
+# Litegres container image: PostgreSQL 17 plus the litegresd daemon.
 #
 # Build:    docker build -t litegres/litegresd:0.1.0 .
-# Run:      docker run --rm -p 49100:49100 -p 49152-49183:49152-49183 litegres/litegresd:0.1.0
+# Run:      docker run --rm -p 49100:49100 -p 5432:5432 litegres/litegresd:0.1.0
 #
-# The image is pre-configured for Docker networking:
-#   - the control API and every data-plane (PostgreSQL) endpoint bind 0.0.0.0
-#     so Docker port publishing can reach them;
-#   - databases bind a fixed in-container port range (49152-49183) so the
-#     whole range can be published 1:1 with `-p 49152-49183:49152-49183`;
-#   - connection info advertises `localhost` so host-side clients (psql,
-#     JDBC, the Java client, curl) can connect through the published ports.
+# One PostgreSQL server (tuned for throwaway data: fsync off) hosts every
+# database; the daemon manages them through the control API on 49100.
 #
-# All of it can be overridden with LITEGRES_* environment variables.
+#   - the control API binds 0.0.0.0 so Docker port publishing can reach it;
+#   - PostgreSQL's own port 5432 is the only data port: every database is
+#     reachable there, told apart by database name;
+#   - connection info advertises `localhost` so host-side clients (psql, JDBC,
+#     the Java client, curl) can connect through the published ports. If you
+#     publish 5432 on a different host port, set LITEGRES_PUBLIC_PORT.
+#
+# The server uses a fixed, loopback-published test password; do not expose
+# this container to untrusted networks. Everything can be overridden with
+# LITEGRES_* / POSTGRES_* environment variables.
 
 # ---- build stage: compile the standalone litegresd binary ----
 FROM oven/bun:1.2 AS build
@@ -25,33 +29,29 @@ RUN bun install --frozen-lockfile
 COPY . .
 RUN bun run build
 
-# ---- runtime stage: just the binary + docker-friendly defaults ----
-FROM oven/bun:1.2
+# ---- runtime stage: PostgreSQL + the binary ----
+FROM postgres:17
 
 COPY --from=build /app/dist/litegresd /usr/local/bin/litegresd
+COPY docker/entrypoint.sh /usr/local/bin/litegres-entrypoint
 
-# Bind everything on 0.0.0.0 so published ports are reachable.
-# The image has no Docker and no PostgreSQL server, so it runs the in-process
-# PGlite engine. (Run the native engine by setting LITEGRES_ENGINE=native and
-# LITEGRES_POSTGRES_URL to a reachable server.)
-ENV LITEGRES_ENGINE=pglite \
+ENV POSTGRES_PASSWORD=litegres \
+    LITEGRES_POSTGRES_URL=postgresql://postgres:litegres@127.0.0.1:5432/postgres \
+    LITEGRES_POSTGRES_DOCKER=false \
     LITEGRES_HOST=0.0.0.0 \
     LITEGRES_REJECT_NON_LOCAL_BIND=false \
     # Fixed, predictable runtime dir so clients can read the control token.
     LITEGRES_RUNTIME_DIR=/var/lib/litegres \
-    # Databases bind a fixed contiguous range (published 1:1 on the host).
-    LITEGRES_DATA_PLANE_PORT_BASE=49152 \
-    LITEGRES_DATA_PLANE_PORT_COUNT=32 \
     # Advertise the host-visible address in every connection string.
     LITEGRES_PUBLIC_HOST=localhost
 
-# Control API + the data-plane range (EXPOSE is documentation only; the
-# publish flags on `docker run` do the actual mapping).
-EXPOSE 49100 49152-49183
+# Control API + PostgreSQL (EXPOSE is documentation only; the publish flags
+# on `docker run` do the actual mapping).
+EXPOSE 49100 5432
 
 # `litegresd status --json` exits non-zero until the daemon has written its
 # discovery file; the grep distinguishes READY from STARTING/FAILED.
-HEALTHCHECK --interval=5s --timeout=3s --start-period=20s --retries=20 \
+HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=20 \
     CMD litegresd status --json 2>/dev/null | grep -q '"state": "READY"' || exit 1
 
-CMD ["litegresd", "run"]
+ENTRYPOINT ["litegres-entrypoint"]

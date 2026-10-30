@@ -13,6 +13,8 @@ import type { Logger } from "../observability/logger";
 export interface DockerPostgres {
   /** Admin connection URL for the container. */
   url: string;
+  /** True if this call started the container (false when an existing one was reused). */
+  owned: boolean;
   stop(): Promise<void>;
 }
 
@@ -88,7 +90,7 @@ export async function startDockerPostgres(opts: {
     }
     const url = `postgresql://postgres:${PASSWORD}@127.0.0.1:${match[1]}/postgres`;
     await waitUntilAcceptingConnections(url);
-    return { url, stop };
+    return { url, owned, stop };
   } catch (err) {
     await stop();
     throw new ApiError(

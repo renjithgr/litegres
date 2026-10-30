@@ -3,19 +3,54 @@
  * PostgreSQL clients to created databases.
  */
 import { Daemon, VERSION } from "../src/daemon";
-import { ManualClock, type Clock } from "../src/clock";
+import { ManualClock, SystemClock, type Clock } from "../src/clock";
+import { startDockerPostgres } from "../src/engine/docker-postgres";
 import type { DaemonConfig } from "../src/config/config";
 import { Logger } from "../src/observability/logger";
 import { Metrics } from "../src/observability/metrics";
 import pg from "pg";
 
 /**
- * Engine used by the test suite. Set LITEGRES_TEST_POSTGRES_URL (an admin
- * URL of a disposable PostgreSQL server) to run against the native engine;
- * otherwise tests run on the in-process PGlite engine.
+ * Admin URL of the disposable PostgreSQL server the tests run against.
+ *
+ * Set LITEGRES_TEST_POSTGRES_URL to use a server you provide (CI service
+ * container, local install; it must be disposable). Otherwise the first test
+ * that needs a database starts a throwaway postgres container (needs Docker)
+ * and removes it when the test run ends.
  */
-export const TEST_POSTGRES_URL = process.env.LITEGRES_TEST_POSTGRES_URL;
-export const TEST_ENGINE: "native" | "pglite" = TEST_POSTGRES_URL ? "native" : "pglite";
+export function testPostgresUrl(): string {
+  const url = process.env.LITEGRES_TEST_POSTGRES_URL;
+  if (!url) throw new Error("No test PostgreSQL yet: await ensureTestPostgres() first");
+  return url;
+}
+
+/**
+ * `bun test` ends the process without running exit handlers, so a detached
+ * watchdog waits for this process to disappear (however it ends) and then
+ * removes the container.
+ */
+function removeContainerWhenThisProcessEnds(container: string): void {
+  const watchdog = Bun.spawn(
+    ["sh", "-c", `while kill -0 ${process.pid} 2>/dev/null; do sleep 1; done; docker rm -f ${container} >/dev/null 2>&1`],
+    { stdio: ["ignore", "ignore", "ignore"], detached: true },
+  );
+  watchdog.unref();
+}
+
+let ensured: Promise<string> | undefined;
+
+export function ensureTestPostgres(): Promise<string> {
+  if (process.env.LITEGRES_TEST_POSTGRES_URL) return Promise.resolve(process.env.LITEGRES_TEST_POSTGRES_URL);
+  ensured ??= (async () => {
+    const clock = new SystemClock();
+    const logger = new Logger({ level: "error", format: "json", clock, destination: () => {} });
+    const pgContainer = await startDockerPostgres({ image: "postgres:17-alpine", keep: false, logger });
+    if (pgContainer.owned) removeContainerWhenThisProcessEnds("litegres-postgres");
+    process.env.LITEGRES_TEST_POSTGRES_URL = pgContainer.url;
+    return pgContainer.url;
+  })();
+  return ensured;
+}
 
 export function testConfig(overrides: Partial<DaemonConfig> = {}): DaemonConfig {
   return {
@@ -40,11 +75,7 @@ export function testConfig(overrides: Partial<DaemonConfig> = {}): DaemonConfig 
     logLevel: "error",
     logFormat: "json",
     rejectNonLocalBind: true,
-    initialMemoryBytes: 128 * 1024 * 1024,
-    dataPlanePortBase: 49152,
-    dataPlanePortCount: 0,
-    engine: TEST_ENGINE,
-    postgresUrl: TEST_POSTGRES_URL,
+    postgresUrl: testPostgresUrl(),
     postgresDocker: false,
     keepPostgres: false,
     postgresImage: "postgres:17-alpine",
@@ -69,6 +100,7 @@ export async function startTestDaemon(opts: {
   clock?: Clock;
   silent?: boolean;
 } = {}): Promise<TestDaemon> {
+  await ensureTestPostgres();
   const clock = opts.clock ?? new ManualClock(Date.now());
   const daemon = new Daemon({
     config: testConfig(opts.config),
@@ -155,7 +187,7 @@ export async function canConnect(conn: PgConnection, timeoutMs = 2000): Promise<
 
 /**
  * Wait until nobody can log in to this database any more: the endpoint's
- * port is closed (pglite) or the database no longer accepts/has connections
+ * database no longer exists or accepts connections
  * (native).
  */
 export async function assertEndpointClosed(conn: PgConnection, timeoutMs = 3000): Promise<void> {

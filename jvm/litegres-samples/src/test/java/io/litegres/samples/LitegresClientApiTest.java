@@ -47,7 +47,7 @@ class LitegresClientApiTest {
                             .statement("INSERT INTO t VALUES (7)"));
             assertTrue(created.database().ready());
 
-            // ordinary JDBC against the data plane
+            // ordinary JDBC against the PostgreSQL server
             try (Connection conn = open(created.connection());
                     Statement st = conn.createStatement();
                     ResultSet rs = st.executeQuery("SELECT x FROM t")) {
