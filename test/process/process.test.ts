@@ -12,6 +12,14 @@ import pg from "pg";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
 const BIN = process.env.LITEGRES_BIN ?? join(repoRoot, "dist", "litegresd");
+// Engine under test: native when LITEGRES_TEST_POSTGRES_URL is set, else pglite
+// (which also proves the WASM assets are embedded in the standalone binary).
+const ENGINE_ENV = {
+  LITEGRES_ENGINE: process.env.LITEGRES_TEST_POSTGRES_URL ? "native" : "pglite",
+  LITEGRES_POSTGRES_URL: process.env.LITEGRES_TEST_POSTGRES_URL ?? "",
+  LITEGRES_POSTGRES_DOCKER: "false",
+  LITEGRES_NAME_PREFIX: `litegres_proc_${Math.random().toString(36).slice(2, 8)}_`,
+};
 
 interface RunningDaemon {
   proc: Bun.Subprocess;
@@ -45,6 +53,7 @@ async function startDaemon(): Promise<RunningDaemon> {
     cwd: workDir,
     env: {
       ...process.env,
+      ...ENGINE_ENV,
       LITEGRES_RUNTIME_DIR: runtimeDir,
       LITEGRES_PORT: String(controlPort),
     },
@@ -152,17 +161,17 @@ describe("compiled litegresd from a clean directory", () => {
 
     // 7. multiple databases can coexist
     const db2 = await client.createDatabase({ sessionId: session.id, ttlSeconds: 600 });
-    expect(db2.connection.port).not.toBe(db.connection.port);
+    expect(`${db2.connection.port}/${db2.connection.database}`).not.toBe(`${db.connection.port}/${db.connection.database}`);
     const status = await client.status();
     expect(status.activeDatabases).toBe(2);
 
     // 8. deleting a database closes its PostgreSQL endpoint
     await client.deleteDatabase(db.id);
-    await expectPortClosed(db.connection.port);
+    await expectEndpointClosed(db.connection);
 
     // 9. deleting a session closes all owned endpoints
     await client.deleteSession(session.id);
-    await expectPortClosed(db2.connection.port);
+    await expectEndpointClosed(db2.connection);
     const after = await client.status();
     expect(after.activeDatabases).toBe(0);
 
@@ -182,6 +191,7 @@ describe("compiled litegresd from a clean directory", () => {
       cwd: running.workDir,
       env: {
         ...process.env,
+        ...ENGINE_ENV,
         LITEGRES_RUNTIME_DIR: running.runtimeDir,
         LITEGRES_PORT: String(running.controlPort + 1),
       },
@@ -196,10 +206,23 @@ describe("compiled litegresd from a clean directory", () => {
   }, 60_000);
 });
 
-async function expectPortClosed(port: number): Promise<void> {
+async function expectEndpointClosed(conn: {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password?: string;
+}): Promise<void> {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    const client = new pg.Client({ host: "127.0.0.1", port, user: "postgres", database: "postgres", connectionTimeoutMillis: 300 });
+    const client = new pg.Client({
+      host: conn.host,
+      port: conn.port,
+      database: conn.database,
+      user: conn.username,
+      password: conn.password,
+      connectionTimeoutMillis: 300,
+    });
     try {
       await client.connect();
       await client.end();
@@ -208,5 +231,5 @@ async function expectPortClosed(port: number): Promise<void> {
       return;
     }
   }
-  throw new Error(`Port ${port} still accepting connections`);
+  throw new Error(`${conn.host}:${conn.port}/${conn.database} still accepting connections`);
 }

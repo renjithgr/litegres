@@ -10,6 +10,22 @@ jobs:
     name: Test (Linux x86-64)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # The native engine runs against the service container; the same test
+      # files run again below on the in-process PGlite engine.
+      NATIVE_PG_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +46,12 @@ jobs:
       - name: Unit tests
         run: bun test test/unit
 
-      - name: Integration tests
+      - name: Integration tests (native engine)
+        run: bun test test/integration
+        env:
+          LITEGRES_TEST_POSTGRES_URL: ${{ env.NATIVE_PG_URL }}
+
+      - name: Integration tests (pglite engine)
         run: bun test test/integration
 
       - name: Compatibility tests
@@ -40,6 +61,8 @@ jobs:
         run: bun run build
 
       - name: Verify executable from a clean directory
+        env:
+          LITEGRES_POSTGRES_URL: ${{ env.NATIVE_PG_URL }}
         run: |
           CLEAN_DIR=$(mktemp -d)
           cp dist/litegresd "$CLEAN_DIR/"
@@ -49,9 +72,15 @@ jobs:
           LITEGRES_RUNTIME_DIR="$CLEAN_DIR/rt" ./litegresd status --json | grep '"state": "READY"'
           LITEGRES_RUNTIME_DIR="$CLEAN_DIR/rt" ./litegresd stop
 
-      - name: Process-level tests (compiled binary)
+      - name: Process-level tests (compiled binary, pglite engine)
         env:
           LITEGRES_BIN: ${{ github.workspace }}/dist/litegresd
+        run: bun test test/process
+
+      - name: Process-level tests (compiled binary, native engine)
+        env:
+          LITEGRES_BIN: ${{ github.workspace }}/dist/litegresd
+          LITEGRES_TEST_POSTGRES_URL: ${{ env.NATIVE_PG_URL }}
         run: bun test test/process
 
       - name: Upload diagnostic logs on failure
@@ -68,6 +97,18 @@ jobs:
     name: JVM client + JUnit 5 extension (Linux x86-64)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v4
 
@@ -91,6 +132,7 @@ jobs:
       - name: Start daemon
         env:
           LITEGRES_RUNTIME_DIR: ${{ runner.temp }}/litegres-rt
+          LITEGRES_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: |
           mkdir -p "$LITEGRES_RUNTIME_DIR"
           ./dist/litegresd start --background

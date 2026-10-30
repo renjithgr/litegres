@@ -8,18 +8,17 @@
  *  - idempotent destruction (single, by session, all)
  *  - filtering for list endpoints
  *
- * PGlite objects never leave this module.
+ * Engine objects never leave the engine; this module only holds handles.
  */
 import { ApiError } from "../api/errors";
 import type { Clock } from "../clock";
 import type { DaemonConfig } from "../config/config";
-import { generateCredentials } from "../security/credentials";
 import { generateId } from "../ids";
 import { databaseMachine, type DatabaseState } from "../lifecycle/state-machine";
 import type { Metrics } from "../observability/metrics";
 import type { Logger } from "../observability/logger";
 import { assertWireReadiness } from "../databases/readiness";
-import { DatabaseFactory } from "../databases/database-factory";
+import type { Engine, TemplateData } from "../engine/engine";
 import { advertisedEndpoint } from "../config/advertised";
 import { ManagedDatabase } from "../databases/managed-database";
 import type {
@@ -36,7 +35,7 @@ import type {
 } from "../types";
 
 export interface TemplateSnapshot {
-  tarball: Blob;
+  data: TemplateData;
   capturedAt: Date;
 }
 
@@ -45,7 +44,7 @@ export interface DatabaseRegistryDeps {
   clock: Clock;
   metrics: Metrics;
   logger: Logger;
-  factory: DatabaseFactory;
+  engine: Engine;
   /** Callback used by the reaper/close paths; returns nothing. */
   onClose?: (id: DatabaseId) => void;
 }
@@ -148,23 +147,28 @@ export class DatabaseRegistry {
 
     const id = generateId("db");
     this.pending.set(id, options.sessionId);
-    const credentials = generateCredentials();
     const ttlMs = Math.min(options.ttlSeconds, config.maximumDatabaseTtlSeconds) * 1000;
     const createdAt = clock.now();
     const expiresAt = new Date(clock.nowMs() + ttlMs);
 
     let db: ManagedDatabase | null = null;
     try {
-      // Boot PGlite (empty or from template snapshot).
+      // Create in the engine (empty or from a template), applying any
+      // initialization statements before the database is handed out.
+      const createOptions = {
+        id,
+        template: templateSnapshot?.data,
+        statements: options.initialization?.statements,
+      };
       let instance;
       if (templateSnapshot) {
         instance = await metrics.timed("litegres_database_clone_duration_ms", () =>
-          this.deps.factory.boot({ loadDataDir: templateSnapshot.tarball }),
+          this.deps.engine.createDatabase(createOptions),
         );
         metrics.increment("litegres_database_clones_total");
       } else {
         instance = await metrics.timed("litegres_database_create_duration_ms", () =>
-          this.deps.factory.boot(),
+          this.deps.engine.createDatabase(createOptions),
         );
         metrics.increment("litegres_databases_created_total");
       }
@@ -176,21 +180,18 @@ export class DatabaseRegistry {
         templateId: options.templateId,
         createdAt,
         expiresAt,
-        host: config.host,
+        host: instance.host,
         port: instance.port,
-        databaseName: "postgres",
-        username: credentials.username,
-        password: credentials.password,
+        databaseName: instance.database,
+        username: instance.username,
+        password: instance.password,
         metadata: options.metadata ?? {},
-        pglite: instance.pglite,
-        socketServer: instance.socketServer,
+        instance,
         state: "CREATING",
         closeTimeoutMs: config.databaseCloseTimeoutMs,
         clock,
       });
       db.setState("INITIALIZING");
-
-      await this.deps.factory.applyInitialization(instance.pglite, options.initialization);
 
       // Prove the endpoint is usable by an external PostgreSQL client.
       await assertWireReadiness(

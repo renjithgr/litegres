@@ -1,15 +1,17 @@
 # Litegres
 
-> Litegres is a local daemon that creates disposable PostgreSQL-compatible databases backed by [PGlite](https://pglite.dev).
+> Litegres is a local daemon that hands out disposable, isolated PostgreSQL databases in milliseconds, cloned from a migrated template on one real PostgreSQL server.
 
-**One lightweight daemon. Many isolated Postgres-compatible databases.**
+**One PostgreSQL server. Many isolated databases. No container per test.**
 
-Instead of starting one Docker container or one OS process per test database,
-Litegres starts once and manages many isolated PGlite instances inside that
-process. A test framework asks the daemon for a database through a small HTTP
-control API and gets back ordinary PostgreSQL connection details; the test's
-normal PostgreSQL client then talks to the database over the standard wire
-protocol.
+Instead of starting one Docker container per test class, Litegres keeps one
+PostgreSQL server running and manages many isolated databases inside it. A
+test framework asks the daemon for a database through a small HTTP control
+API and gets back ordinary PostgreSQL connection details; the test's normal
+PostgreSQL client then talks to the database over the standard wire
+protocol. Databases are cloned from a prepared **template** with
+`CREATE DATABASE ... TEMPLATE`, so a migrated schema costs ~15 ms per
+database instead of re-running migrations.
 
 ```
 Test runners and applications
@@ -17,45 +19,46 @@ Test runners and applications
              │ Control API (HTTP, localhost)
              ▼
 ┌─────────────────────────────────────────────┐
-│ Litegres daemon                            │
+│ Litegres daemon                             │
+│  sessions · leases · templates · reaper     │
 │                                             │
-│ Session and database registry               │
-│                                             │
-│ ├── template_accounting_v12                 │
-│ ├── db_test_01 → PGlite instance            │
-│ ├── db_test_02 → PGlite instance            │
-│ └── db_test_03 → PGlite instance            │
-│                                             │
-│ Each database has its own PG wire endpoint  │
+│  engine (native)                            │
+└──────────────────────┬──────────────────────┘
+                       │ CREATE / DROP DATABASE
+                       ▼
+┌─────────────────────────────────────────────┐
+│ One PostgreSQL server                       │
+│ ├── litegres_tpl_accounting  (template)     │
+│ ├── litegres_db_test_01  ◄── clone          │
+│ ├── litegres_db_test_02  ◄── clone          │
+│ └── litegres_db_test_03  ◄── clone          │
 └─────────────────────────────────────────────┘
-       │               │               │
-       ▼               ▼               ▼
-  PG port 49152    PG port 49153    PG port 49154
+        ▲               ▲               ▲
+        └─ tests connect directly (wire protocol, real backends)
 ```
 
 ## Why it exists
 
-Automated tests need real databases. The usual options are heavy:
+Integration tests need real databases, and the usual options hurt at scale:
 
-- **Docker Testcontainers**: pull images, wait for container readiness,
-  manage a Docker daemon in CI — seconds per database.
-- **System PostgreSQL**: shared server state, cross-test contamination,
-  permission wrangling.
+- **One Testcontainer per test class**: seconds each, and many at once slow
+  the machine down.
+- **One shared container**: tests contaminate each other's state, so you
+  cannot run them in parallel without managing that state by hand.
 
-Litegres targets the middle ground: **fast, disposable, isolated,
-PostgreSQL-compatible databases for automated tests**, with no Docker and no
-OS process per database. Databases are created in ~100–500 ms, live for a
-configurable lease, and are destroyed automatically when the test run ends
-or the lease expires.
+Litegres gives every test (or parallel worker) its **own isolated database**
+on **one shared server**: real PostgreSQL semantics (concurrent sessions,
+locks, extensions), created and destroyed in milliseconds, cleaned up
+automatically when the run ends or the lease expires.
 
 ## Control plane vs data plane
 
 - **Control plane** — an HTTP API on `127.0.0.1` (default port `49100`) that
   creates, clones, inspects, leases, and destroys sessions, templates, and
   databases. JSON in, JSON out, OpenAPI 3.1 spec in `docs/openapi.yaml`.
-- **Data plane** — one TCP port per database speaking the standard PostgreSQL
-  wire protocol. Ordinary SQL goes straight to PostgreSQL; it is never
-  routed through HTTP.
+- **Data plane** — the PostgreSQL server itself. Each database has its own
+  name on the server's port and speaks the standard wire protocol. Ordinary
+  SQL goes straight to PostgreSQL; it is never routed through HTTP.
 
 ## Quick start (30 seconds)
 
@@ -63,9 +66,12 @@ or the lease expires.
 # 1. install
 bun install
 
-# 2. start the daemon (foreground)
+# 2. start the daemon (foreground). It needs a PostgreSQL server:
+#    either point it at one ...
+bun run src/main.ts run --postgres-url postgresql://postgres:secret@127.0.0.1:5432/postgres
+#    ... or let it start a throwaway postgres container (needs Docker)
 bun run src/main.ts run
-# or, after building: ./dist/litegresd run
+# after building: ./dist/litegresd run
 
 # 3. in another terminal — create a session
 curl -s -X POST http://127.0.0.1:49100/v1/sessions \
@@ -86,7 +92,7 @@ psql "postgresql://postgres:generated-secret@127.0.0.1:PORT/postgres"
 ## Starting the daemon
 
 ```bash
-litegresd run                # foreground
+litegresd run                # foreground (starts a postgres container unless --postgres-url is given)
 litegresd start              # foreground (same as run in the MVP)
 litegresd start --background # detached, logs to the runtime dir
 litegresd status             # show daemon status
@@ -231,7 +237,8 @@ reaper every 10 s — all configurable.
 
 ## Templates and cloning
 
-Templates are prepared PGlite snapshots that clone into isolated databases.
+Templates are prepared, immutable databases that clone into isolated databases
+(`CREATE DATABASE ... TEMPLATE` on the native engine).
 Two ways to create one:
 
 **1. From statements (idempotent by fingerprint):**
@@ -299,10 +306,12 @@ LITEGRES_MAX_DATABASES_PER_SESSION, LITEGRES_DATABASE_TTL_SECONDS,
 LITEGRES_MAX_DATABASE_TTL_SECONDS, LITEGRES_SESSION_TTL_SECONDS,
 LITEGRES_MAX_SESSION_TTL_SECONDS, LITEGRES_REAPER_INTERVAL_SECONDS,
 LITEGRES_RUNTIME_DIR, LITEGRES_LOG_LEVEL, LITEGRES_LOG_FORMAT,
-LITEGRES_CONTROL_TOKEN, LITEGRES_CONFIG_FILE
+LITEGRES_CONTROL_TOKEN, LITEGRES_CONFIG_FILE,
+LITEGRES_ENGINE, LITEGRES_POSTGRES_URL, LITEGRES_POSTGRES_DOCKER,
+LITEGRES_KEEP_POSTGRES, LITEGRES_POSTGRES_IMAGE, LITEGRES_NAME_PREFIX
 ```
 
-A JSON config file (`--config-file`) is also supported. Invalid configuration
+See [docs/engines.md](docs/engines.md) for the engine options. A JSON config file (`--config-file`) is also supported. Invalid configuration
 fails at startup with actionable errors.
 
 ## Security model
@@ -320,32 +329,33 @@ multi-tenant hosting platform.
 
 See [docs/security.md](docs/security.md) for details.
 
-## Compatibility limitations
+## Compatibility
 
-Litegres and PGlite are **not native PostgreSQL**. Do not use Litegres to
-validate realistic concurrent sessions, deadlocks, lock contention,
-connection-pool exhaustion, replication, failover, WAL behavior, SSL
-behavior, arbitrary extensions, native performance, OS integration, or
-production correctness.
+With the default **native** engine every database is a real database on a
+real PostgreSQL server, so concurrency, locks, extensions and every client
+library behave as on any Postgres. Things to know: clients receive the
+server's admin credentials, all databases share the server's resources
+(`max_connections`, CPU), and there is no TLS. Use a disposable server.
 
-Recommended two-layer strategy:
+The legacy `--engine pglite` mode (PostgreSQL compiled to WebAssembly) is
+much weaker: it serializes all connections of a database, lacks extensions,
+and breaks Flyway under default settings.
 
-```text
-Fast test suite:      Litegres on every local run and pull request.
-Compatibility suite:  Native PostgreSQL through Testcontainers or CI infra.
-```
-
-See [docs/compatibility.md](docs/compatibility.md) for the full list.
+See [docs/compatibility.md](docs/compatibility.md) and
+[docs/engines.md](docs/engines.md).
 
 ## Litegres vs Testcontainers
 
-| | Litegres (PGlite) | Testcontainers (native Postgres) |
+| | Litegres (native engine) | Testcontainers (one container per class) |
 |---|---|---|
-| Docker required | no | yes |
-| First database | ~100–500 ms | seconds (image pull + boot) |
-| Isolation | process-local, snapshot-based | OS processes/containers |
-| Fidelity | PostgreSQL 18 engine, single-process semantics | full PostgreSQL |
-| Use for | fast disposable tests | compatibility/behavior suites |
+| Docker required | one container, or none with your own server | yes |
+| New isolated database | ~15 ms | seconds |
+| Memory for 16 isolated databases | ~210 MiB total | 16 containers |
+| Parallel test workers | one database each, one shared server | one container each |
+| Fidelity | real PostgreSQL | real PostgreSQL |
+
+Measured with `spike/phase0` (Spring Boot + Flyway + JPA suite, 48 tests):
+20 s serial / 11 s at 4 forks, and the same on the Litegres daemon (19 s / 10 s).
 
 ## Troubleshooting
 
@@ -359,14 +369,18 @@ See [docs/compatibility.md](docs/compatibility.md) for the full list.
   or configure a different port with `--port`.
 - **"Another Litegres daemon owns ..."** — a live daemon already claims the
   runtime dir; use `litegresd stop` first or a different `--runtime-dir`.
-- **High memory** — each PGlite instance reserves WASM memory; keep
-  `maxDatabases` bounded and prefer template clones over empty instances.
-  See [docs/architecture.md](docs/architecture.md).
+- **"No PostgreSQL server configured and Docker is not available"** — pass
+  `--postgres-url` (or `LITEGRES_POSTGRES_URL`) or start Docker.
+- **My databases vanished on daemon start** — the daemon drops every database
+  whose name starts with `--name-prefix` (default `litegres_`) to clean up
+  after crashes. Use a distinct prefix per daemon and never one that matches
+  databases you care about.
 
 ## Roadmap
 
-- Worker sharding (multiple workers owning disjoint databases)
-- Shared-port PostgreSQL router (one port, virtual routing)
+- Spring Boot test module (`@ServiceConnection`) and a per-worker reset endpoint
+- Java client that downloads and starts `litegresd` itself
+- Remove the PGlite engine once native has proven itself
 - Prometheus metrics endpoint
 - Rust / Go / Python / Ruby clients and framework extensions
   (integration pattern documented in `docs/client-integrations.md`;
@@ -379,7 +393,9 @@ See [docs/compatibility.md](docs/compatibility.md) for the full list.
 bun install
 bun run typecheck     # bunx tsc --noEmit
 bun run lint          # typecheck + hygiene checks
-bun test              # unit + integration + compatibility (test/)
+bun test              # unit + integration + compatibility on the PGlite engine
+LITEGRES_TEST_POSTGRES_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres bun test
+                      # same suite on the native engine (disposable server!)
 bun run integration-test
 bun run process-test  # compiled binary from a clean directory
 bun run build         # standalone executable -> dist/litegresd

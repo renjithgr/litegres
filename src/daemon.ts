@@ -1,6 +1,6 @@
 /**
- * Litegres daemon: one long-lived process managing many isolated PGlite
- * database instances.
+ * Litegres daemon: one long-lived process managing many isolated disposable
+ * databases, hosted by a pluggable engine (native PostgreSQL or PGlite).
  *
  * Wires together configuration, registries, the reaper, the control API,
  * discovery files and graceful shutdown. Exposes a narrow Daemon interface to
@@ -11,11 +11,12 @@ import { ApiServer } from "./api/server";
 import type { ApiContext } from "./api/routes";
 import { SystemClock, type Clock } from "./clock";
 import { loadConfig, type DaemonConfig } from "./config/config";
-import { DatabaseFactory } from "./databases/database-factory";
+import type { Engine } from "./engine/engine";
+import { NativeEngine } from "./engine/native-engine";
+import { PgliteEngine } from "./engine/pglite-engine";
 import { DatabaseRegistry } from "./registry/database-registry";
 import { SessionRegistry } from "./registry/session-registry";
 import { TemplateRegistry } from "./registry/template-registry";
-import { TemplateFactory } from "./templates/template-factory";
 import { Reaper } from "./lifecycle/reaper";
 import { ShutdownCoordinator } from "./lifecycle/shutdown";
 import { Logger } from "./observability/logger";
@@ -51,6 +52,7 @@ export class Daemon {
   readonly auth: AuthManager;
   readonly runtimeDir: RuntimeDirectory | null;
   readonly startedAt: Date;
+  readonly engine: Engine;
 
   private apiServer: ApiServer | null = null;
   readonly controlToken: string;
@@ -65,13 +67,16 @@ export class Daemon {
     this.metrics = opts.metrics ?? new Metrics();
     this.startedAt = this.clock.now();
 
-    const factory = new DatabaseFactory({ config: this.config, clock: this.clock, metrics: this.metrics });
+    this.engine =
+      this.config.engine === "pglite"
+        ? new PgliteEngine({ config: this.config, clock: this.clock, metrics: this.metrics })
+        : new NativeEngine({ config: this.config, logger: this.logger.child({ component: "engine" }) });
     this.databases = new DatabaseRegistry({
       config: this.config,
       clock: this.clock,
       metrics: this.metrics,
       logger: this.logger.child({ component: "databases" }),
-      factory,
+      engine: this.engine,
     });
     this.sessions = new SessionRegistry({
       config: this.config,
@@ -80,18 +85,12 @@ export class Daemon {
       logger: this.logger.child({ component: "sessions" }),
       databases: this.databases,
     });
-    const templateFactory = new TemplateFactory({
-      config: this.config,
-      metrics: this.metrics,
-      databaseFactory: factory,
-    });
     this.templates = new TemplateRegistry({
       config: this.config,
       clock: this.clock,
       metrics: this.metrics,
       logger: this.logger.child({ component: "templates" }),
-      databaseFactory: factory,
-      templateFactory,
+      engine: this.engine,
       databases: this.databases,
     });
 
@@ -124,6 +123,7 @@ export class Daemon {
       metrics: this.metrics,
       logger: this.logger.child({ component: "shutdown" }),
       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
+      stopEngine: () => this.engine.stop(),
       stopControlApi: () => this.apiServer?.stop() ?? Promise.resolve(),
       cleanupRuntimeFiles: () => this.runtimeDir?.removeAll() ?? Promise.resolve(),
     });
@@ -168,7 +168,8 @@ export class Daemon {
         startedAt: this.startedAt,
         version: VERSION,
         controlUrl: this.controlUrl,
-        postgresVersion: this.postgresVersion,
+        postgresVersion: this.engine.describe().version ?? this.postgresVersion,
+        engine: this.engine.name,
         shutdown: (reason: string) => this.shutdown(reason),
         runReaperOnce: () => this.reaper.runOnce(),
       },
@@ -186,6 +187,8 @@ export class Daemon {
         await this.runtimeDir.acquireLock();
         await this.runtimeDir.writeTokenFile(this.controlToken);
       }
+
+      await this.engine.start();
 
       const apiServer = new ApiServer({
         ctx: this.apiContext(),
@@ -226,6 +229,7 @@ export class Daemon {
       });
     } catch (err) {
       this.setState("FAILED");
+      await this.engine.stop().catch(() => {});
       await this.runtimeDir?.removeAll().catch(() => {});
       this.logger.error("daemon failed to start", {
         errorCode: err instanceof ApiError ? err.code : "INTERNAL_ERROR",

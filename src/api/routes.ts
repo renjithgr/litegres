@@ -39,6 +39,7 @@ export interface ApiContext {
     version: string;
     controlUrl: string;
     postgresVersion: string | undefined;
+    engine: string;
     shutdown(reason: string): Promise<void>;
     runReaperOnce(): Promise<Reaper["runOnce"] extends (() => Promise<infer R>) ? R : never>;
   };
@@ -519,6 +520,7 @@ function statusBody(ctx: ApiContext): Record<string, unknown> {
     },
     runtime: {
       bunVersion: Bun.version,
+      engine: ctx.daemon.engine,
       pgliteVersion: pgliteVersion(),
       postgresVersion: ctx.daemon.postgresVersion ?? "unknown",
       controlUrl: ctx.daemon.controlUrl,

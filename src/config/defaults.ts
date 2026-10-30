@@ -37,6 +37,18 @@ export const DEFAULTS = {
   publicHost: undefined as string | undefined,
   /** Override the advertised data-plane port base (fixed-port mapping). */
   publicPortBase: undefined as number | undefined,
+  // Engine: "native" (real PostgreSQL, CREATE DATABASE ... TEMPLATE) or
+  // "pglite" (WASM, one instance per database).
+  engine: "native" as "native" | "pglite",
+  /** Admin URL of the PostgreSQL server used by the native engine. */
+  postgresUrl: undefined as string | undefined,
+  /** Start a managed postgres container when no postgresUrl is given. */
+  postgresDocker: true,
+  /** Leave the managed postgres container running on shutdown. */
+  keepPostgres: false,
+  postgresImage: "postgres:17-alpine",
+  /** Prefix of every database the native engine creates (and sweeps on start). */
+  namePrefix: "litegres_",
 } as const;
 
 export type Defaults = typeof DEFAULTS;

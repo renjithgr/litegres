@@ -2,7 +2,7 @@
  * Failure injection tests using internal seams.
  */
 import { describe, expect, test, afterAll } from "bun:test";
-import { startTestDaemon, api, type TestDaemon } from "../helpers";
+import { startTestDaemon, api, TEST_ENGINE, type TestDaemon } from "../helpers";
 
 let t: TestDaemon;
 
@@ -33,9 +33,12 @@ describe("failure injection", () => {
     const tpl = await api<{ id: string }>(t, "PUT", "/v1/templates/broken1", {
       initialization: { statements: ["CREATE TABLE t (x int)"] },
     });
-    // Corrupt the snapshot to simulate a clone failure.
+    // Corrupt the template data to simulate a clone failure.
     const template = t.daemon.templates.require(tpl.body.id);
-    (template as unknown as { _snapshot: Blob })._snapshot = new Blob(["not a pglite tarball"]);
+    (template as unknown as { _data: unknown })._data =
+      TEST_ENGINE === "native"
+        ? { engine: "native", databaseName: "litegres_no_such_template" }
+        : { engine: "pglite", tarball: new Blob(["not a pglite tarball"]) };
 
     const failed = await api<{ error: { code: string } }>(t, "POST", "/v1/databases", { templateId: tpl.body.id, ttlSeconds: 600 });
     expect(failed.status).toBe(500);

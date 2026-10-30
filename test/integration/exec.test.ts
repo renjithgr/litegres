@@ -10,13 +10,13 @@ afterAll(async () => {
 describe("administrative exec endpoint", () => {
   test("executes SQL and returns rows", async () => {
     t = await startTestDaemon();
-    const db = await api<{ id: string }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
+    const db = await api<{ id: string; connection: { database: string } }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
     const res = await api<{ fields: string[]; rows: Record<string, unknown>[] }>(t, "POST", `/v1/databases/${db.body.id}/exec`, {
       sql: "SELECT current_database() AS db, 1 + 1 AS two",
     });
     expect(res.status).toBe(200);
     expect(res.body.fields).toEqual(["db", "two"]);
-    expect(res.body.rows[0]).toEqual({ db: "postgres", two: 2 });
+    expect(res.body.rows[0]).toEqual({ db: db.body.connection.database, two: 2 });
   });
 
   test("supports parameters", async () => {

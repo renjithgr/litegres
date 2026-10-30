@@ -36,6 +36,12 @@ export interface DaemonConfig {
   dataPlanePortCount: number;
   publicHost?: string;
   publicPortBase?: number;
+  engine: "native" | "pglite";
+  postgresUrl?: string;
+  postgresDocker: boolean;
+  keepPostgres: boolean;
+  postgresImage: string;
+  namePrefix: string;
 }
 
 export function defaultConfig(): DaemonConfig {
@@ -66,6 +72,12 @@ export function defaultConfig(): DaemonConfig {
     dataPlanePortCount: DEFAULTS.dataPlanePortCount,
     publicHost: DEFAULTS.publicHost,
     publicPortBase: DEFAULTS.publicPortBase,
+    engine: DEFAULTS.engine,
+    postgresUrl: DEFAULTS.postgresUrl,
+    postgresDocker: DEFAULTS.postgresDocker,
+    keepPostgres: DEFAULTS.keepPostgres,
+    postgresImage: DEFAULTS.postgresImage,
+    namePrefix: DEFAULTS.namePrefix,
   };
 }
 
@@ -169,6 +181,15 @@ export function validateConfig(raw: Record<string, unknown>): DaemonConfig {
     } else if (cfg.publicPortBase + (cfg.dataPlanePortCount > 0 ? cfg.dataPlanePortCount - 1 : 0) > 65535) {
       errors.push(`publicPortBase + dataPlanePortCount exceeds 65535 (base ${cfg.publicPortBase}, count ${cfg.dataPlanePortCount})`);
     }
+  }
+  if (cfg.engine !== "native" && cfg.engine !== "pglite") {
+    errors.push(`engine must be "native" or "pglite", got ${String(cfg.engine)}`);
+  }
+  if (cfg.postgresUrl !== undefined && !/^postgres(ql)?:\/\//.test(String(cfg.postgresUrl))) {
+    errors.push("postgresUrl must start with postgres:// or postgresql://");
+  }
+  if (typeof cfg.namePrefix !== "string" || !/^[a-z][a-z0-9_]{0,24}$/.test(cfg.namePrefix)) {
+    errors.push("namePrefix must be 1-25 characters of [a-z0-9_] starting with a letter");
   }
   for (const key of [
     "maxDatabases",
@@ -280,6 +301,12 @@ export function cliOverridesToConfig(args: Record<string, string | number | bool
     }
   }
   if (args.host !== undefined) cfg.host = String(args.host);
+  if (args.engine !== undefined) cfg.engine = String(args.engine);
+  if (args["postgres-url"] !== undefined) cfg.postgresUrl = String(args["postgres-url"]);
+  if (args["postgres-image"] !== undefined) cfg.postgresImage = String(args["postgres-image"]);
+  if (args["name-prefix"] !== undefined) cfg.namePrefix = String(args["name-prefix"]);
+  if (args["postgres-docker"] !== undefined) cfg.postgresDocker = args["postgres-docker"] !== false && args["postgres-docker"] !== "false";
+  if (args["keep-postgres"] !== undefined) cfg.keepPostgres = args["keep-postgres"] !== false && args["keep-postgres"] !== "false";
   if (args["public-host"] !== undefined) cfg.publicHost = String(args["public-host"]);
   if (args["log-level"] !== undefined) cfg.logLevel = String(args["log-level"]);
   if (args["log-format"] !== undefined) cfg.logFormat = String(args["log-format"]);

@@ -1,5 +1,6 @@
 import { describe, expect, test, afterAll } from "bun:test";
-import { startTestDaemon, api, connectPg, assertPortClosed, type TestDaemon } from "../helpers";
+import type { PgConnection } from "../helpers";
+import { startTestDaemon, api, connectPg, canConnect, assertEndpointClosed, type TestDaemon } from "../helpers";
 
 let t: TestDaemon;
 
@@ -36,12 +37,12 @@ describe("database lifecycle", () => {
 
   test("database deletion closes the PostgreSQL endpoint", async () => {
     t = await startTestDaemon();
-    const res = await api<{ id: string; connection: { port: number } }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
-    const port = res.body.connection.port;
-    expect(await tryConnectP(port)).toBe(true);
+    const res = await api<{ id: string; connection: PgConnection }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
+    const conn = res.body.connection;
+    expect(await canConnect(conn)).toBe(true);
     const del = await api(t, "DELETE", `/v1/databases/${res.body.id}`);
     expect(del.status).toBe(204);
-    await assertPortClosed(port);
+    await assertEndpointClosed(conn);
     // idempotent second delete
     const del2 = await api(t, "DELETE", `/v1/databases/${res.body.id}`);
     expect(del2.status).toBe(204);
@@ -105,14 +106,3 @@ describe("database lifecycle", () => {
     expect(res.status).toBe(400);
   });
 });
-
-async function tryConnectP(port: number): Promise<boolean> {
-  const client = new (await import("pg")).default.Client({ host: "127.0.0.1", port, user: "postgres", database: "postgres" });
-  try {
-    await client.connect();
-    await client.end();
-    return true;
-  } catch {
-    return false;
-  }
-}

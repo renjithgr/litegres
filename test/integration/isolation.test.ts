@@ -1,5 +1,5 @@
 import { describe, expect, test, afterAll } from "bun:test";
-import { startTestDaemon, api, connectPg, type TestDaemon } from "../helpers";
+import { startTestDaemon, api, connectPg, TEST_ENGINE, type TestDaemon } from "../helpers";
 
 let t: TestDaemon;
 
@@ -7,13 +7,16 @@ afterAll(async () => {
   await t?.close();
 });
 
+/** Databases are distinct endpoints: own port (pglite) or own database name (native). */
+const endpoint = (c: { port: number; database: string }) => `${c.port}/${c.database}`;
+
 describe("database isolation", () => {
   test("concurrent databases are fully isolated", async () => {
     t = await startTestDaemon();
     const a = await api<{ id: string; connection: { host: string; port: number; database: string; username: string; password: string } }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
     const b = await api<{ id: string; connection: { host: string; port: number; database: string; username: string; password: string } }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
 
-    expect(a.body.connection.port).not.toBe(b.body.connection.port);
+    expect(endpoint(a.body.connection)).not.toBe(endpoint(b.body.connection));
     expect(a.body.id).not.toBe(b.body.id);
 
     const ca = await connectPg(a.body.connection);
@@ -42,11 +45,16 @@ describe("database isolation", () => {
     await clientB.end();
   });
 
-  test("credentials and ports are distinct where expected", async () => {
+  test("endpoints are distinct; credentials follow the engine", async () => {
     t = await startTestDaemon();
     const a = await api<{ connection: { host: string; port: number; database: string; username: string; password: string } }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
     const b = await api<{ connection: { host: string; port: number; database: string; username: string; password: string } }>(t, "POST", "/v1/databases", { ttlSeconds: 600 });
-    expect(a.body.connection.password).not.toBe(b.body.connection.password);
-    expect(a.body.connection.port).not.toBe(b.body.connection.port);
+    if (TEST_ENGINE === "pglite") {
+      expect(a.body.connection.password).not.toBe(b.body.connection.password);
+    } else {
+      // The native engine hands out the PostgreSQL server's own credentials.
+      expect(a.body.connection.password).toBe(b.body.connection.password);
+    }
+    expect(endpoint(a.body.connection)).not.toBe(endpoint(b.body.connection));
   });
 });

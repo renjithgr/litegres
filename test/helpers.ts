@@ -9,6 +9,14 @@ import { Logger } from "../src/observability/logger";
 import { Metrics } from "../src/observability/metrics";
 import pg from "pg";
 
+/**
+ * Engine used by the test suite. Set LITEGRES_TEST_POSTGRES_URL (an admin
+ * URL of a disposable PostgreSQL server) to run against the native engine;
+ * otherwise tests run on the in-process PGlite engine.
+ */
+export const TEST_POSTGRES_URL = process.env.LITEGRES_TEST_POSTGRES_URL;
+export const TEST_ENGINE: "native" | "pglite" = TEST_POSTGRES_URL ? "native" : "pglite";
+
 export function testConfig(overrides: Partial<DaemonConfig> = {}): DaemonConfig {
   return {
     host: "127.0.0.1",
@@ -35,6 +43,14 @@ export function testConfig(overrides: Partial<DaemonConfig> = {}): DaemonConfig 
     initialMemoryBytes: 128 * 1024 * 1024,
     dataPlanePortBase: 49152,
     dataPlanePortCount: 0,
+    engine: TEST_ENGINE,
+    postgresUrl: TEST_POSTGRES_URL,
+    postgresDocker: false,
+    keepPostgres: false,
+    postgresImage: "postgres:17-alpine",
+    // Unique per daemon so concurrently live test daemons never sweep or
+    // collide with each other on a shared PostgreSQL server.
+    namePrefix: `litegres_test_${Math.random().toString(36).slice(2, 8)}_`,
     ...overrides,
   };
 }
@@ -106,14 +122,25 @@ export async function connectPg(conn: PgConnection): Promise<pg.Client> {
     password: conn.password,
     connectionTimeoutMillis: 10_000,
   });
+  // A test may leave a client open while its database is dropped (the server
+  // then terminates the connection); that must not surface as an unhandled error.
+  client.on("error", () => {});
   await client.connect();
   return client;
 }
 
-export async function tryConnect(port: number, timeoutMs = 2000): Promise<boolean> {
+/** True if a client can log in to exactly this database. */
+export async function canConnect(conn: PgConnection, timeoutMs = 2000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const client = new pg.Client({ host: "127.0.0.1", port, user: "postgres", database: "postgres", connectionTimeoutMillis: 500 });
+    const client = new pg.Client({
+      host: conn.host,
+      port: conn.port,
+      database: conn.database,
+      user: conn.username,
+      password: conn.password,
+      connectionTimeoutMillis: 500,
+    });
     try {
       await client.connect();
       await client.end();
@@ -126,20 +153,31 @@ export async function tryConnect(port: number, timeoutMs = 2000): Promise<boolea
   return false;
 }
 
-export async function assertPortClosed(port: number, timeoutMs = 3000): Promise<void> {
+/**
+ * Wait until nobody can log in to this database any more: the endpoint's
+ * port is closed (pglite) or the database no longer accepts/has connections
+ * (native).
+ */
+export async function assertEndpointClosed(conn: PgConnection, timeoutMs = 3000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const client = new pg.Client({ host: "127.0.0.1", port, user: "postgres", database: "postgres", connectionTimeoutMillis: 300 });
+    const client = new pg.Client({
+      host: conn.host,
+      port: conn.port,
+      database: conn.database,
+      user: conn.username,
+      password: conn.password,
+      connectionTimeoutMillis: 300,
+    });
     try {
       await client.connect();
       await client.end();
-      // still open
       await new Promise((r) => setTimeout(r, 100));
     } catch {
       return;
     }
   }
-  throw new Error(`Port ${port} is still accepting connections`);
+  throw new Error(`${conn.host}:${conn.port}/${conn.database} is still accepting connections`);
 }
 
 export { VERSION };

@@ -1,15 +1,13 @@
 /**
  * ManagedDatabase: one disposable database.
  *
- * Owns its PGlite instance and its PostgreSQL socket server. The PGlite
- * object never escapes this class (or the factory that builds it); the API
- * layer only ever sees descriptors and connection strings.
+ * Owns the engine-side database handle. Engine objects never escape the
+ * engine; the API layer only ever sees descriptors and connection strings.
  */
-import type { PGlite } from "@electric-sql/pglite";
-import type { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { ApiError } from "../api/errors";
 import type { Clock } from "../clock";
 import { databaseMachine, type DatabaseState } from "../lifecycle/state-machine";
+import type { EngineDatabase } from "../engine/engine";
 import type { DatabaseId, SessionId, TemplateId } from "../types";
 
 export interface ManagedDatabaseInit {
@@ -24,8 +22,7 @@ export interface ManagedDatabaseInit {
   username: string;
   password: string;
   metadata: Record<string, string>;
-  pglite: PGlite;
-  socketServer: PGLiteSocketServer;
+  instance: EngineDatabase;
   state: DatabaseState;
   closeTimeoutMs: number;
   clock: Clock;
@@ -46,8 +43,7 @@ export class ManagedDatabase {
   private _password: string;
   private _expiresAt: Date;
   private _state: DatabaseState;
-  private _pglite: PGlite | null;
-  private _socketServer: PGLiteSocketServer | null;
+  private _instance: EngineDatabase;
   private clock: Clock;
   private closePromise: Promise<void> | null = null;
 
@@ -65,8 +61,7 @@ export class ManagedDatabase {
     this._password = init.password;
     this._expiresAt = init.expiresAt;
     this._state = init.state;
-    this._pglite = init.pglite;
-    this._socketServer = init.socketServer;
+    this._instance = init.instance;
     this.clock = init.clock;
   }
 
@@ -91,15 +86,6 @@ export class ManagedDatabase {
     this._state = databaseMachine.transition(this._state, next);
   }
 
-  /** Raw access used only inside the databases layer (factory, exec). */
-  get pglite(): PGlite | null {
-    return this._pglite;
-  }
-
-  get socketServer(): PGLiteSocketServer | null {
-    return this._socketServer;
-  }
-
   /** True once the database is usable over the wire protocol. */
   isReady(): boolean {
     return this._state === "READY";
@@ -118,7 +104,7 @@ export class ManagedDatabase {
   }
 
   /**
-   * Close this database: stop the socket server, close PGlite, mark CLOSED.
+   * Close this database: destroy it in the engine, mark CLOSED.
    * Idempotent and safe to call concurrently.
    */
   close(): Promise<void> {
@@ -130,44 +116,16 @@ export class ManagedDatabase {
   private async doClose(): Promise<void> {
     if (this.isClosed) return;
     this.setState("CLOSING");
-
-    const pglite = this._pglite;
-    const socketServer = this._socketServer;
-
-    // Stop accepting new connections and close active handlers.
-    if (socketServer) {
-      try {
-        await withTimeout(
-          socketServer.stop(),
-          this.closeTimeoutMs,
-          "socket server stop timed out",
-        );
-      } catch (err) {
-        // Fall through: PGlite close will still run; failure recorded by caller.
-        throw new ApiError(
-          "DATABASE_CLEANUP_FAILED",
-          `Failed to stop socket server for database ${this.id}: ${(err as Error).message}`,
-          500,
-        );
-      } finally {
-        this._socketServer = null;
-      }
+    try {
+      await withTimeout(this._instance.close(), this.closeTimeoutMs, "database close timed out");
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(
+        "DATABASE_CLEANUP_FAILED",
+        `Failed to close database ${this.id}: ${(err as Error).message}`,
+        500,
+      );
     }
-
-    if (pglite) {
-      try {
-        await withTimeout(pglite.close(), this.closeTimeoutMs, "pglite close timed out");
-      } catch (err) {
-        throw new ApiError(
-          "DATABASE_CLEANUP_FAILED",
-          `Failed to close PGlite instance for database ${this.id}: ${(err as Error).message}`,
-          500,
-        );
-      } finally {
-        this._pglite = null;
-      }
-    }
-
     this.setState("CLOSED");
   }
 
@@ -176,7 +134,7 @@ export class ManagedDatabase {
     sql: string,
     params: unknown[] = [],
   ): Promise<{ fields: string[]; rows: Record<string, unknown>[]; affectedRows?: number }> {
-    if (!this.isReady() || !this._pglite) {
+    if (!this.isReady()) {
       throw new ApiError(
         "DATABASE_NOT_READY",
         `Database ${this.id} is not ready (state: ${this._state}).`,
@@ -185,12 +143,7 @@ export class ManagedDatabase {
       );
     }
     try {
-      const result = await this._pglite.query(sql, params);
-      return {
-        fields: result.fields.map((f) => f.name),
-        rows: result.rows as Record<string, unknown>[],
-        affectedRows: result.affectedRows,
-      };
+      return await this._instance.exec(sql, params);
     } catch (err) {
       throw new ApiError(
         "EXEC_FAILED",

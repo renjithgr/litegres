@@ -1,5 +1,5 @@
 import { describe, expect, test, afterAll } from "bun:test";
-import { startTestDaemon, api, assertPortClosed, type TestDaemon } from "../helpers";
+import { startTestDaemon, api, assertEndpointClosed, type PgConnection, type TestDaemon } from "../helpers";
 
 let t: TestDaemon;
 
@@ -35,8 +35,8 @@ describe("sessions", () => {
   test("deleting a session destroys its databases", async () => {
     t = await startTestDaemon();
     const ses = await api<{ id: string }>(t, "POST", "/v1/sessions", { ttlSeconds: 1800 });
-    const db = await api<{ id: string; connection: { port: number } }>(t, "POST", "/v1/databases", { sessionId: ses.body.id, ttlSeconds: 600 });
-    const db2 = await api<{ id: string; connection: { port: number } }>(t, "POST", "/v1/databases", { sessionId: ses.body.id, ttlSeconds: 600 });
+    const db = await api<{ id: string; connection: PgConnection }>(t, "POST", "/v1/databases", { sessionId: ses.body.id, ttlSeconds: 600 });
+    const db2 = await api<{ id: string; connection: PgConnection }>(t, "POST", "/v1/databases", { sessionId: ses.body.id, ttlSeconds: 600 });
 
     const del = await api(t, "DELETE", `/v1/sessions/${ses.body.id}`);
     expect(del.status).toBe(204);
@@ -44,8 +44,8 @@ describe("sessions", () => {
     const del2 = await api(t, "DELETE", `/v1/sessions/${ses.body.id}`);
     expect(del2.status).toBe(204);
 
-    await assertPortClosed(db.body.connection.port);
-    await assertPortClosed(db2.body.connection.port);
+    await assertEndpointClosed(db.body.connection);
+    await assertEndpointClosed(db2.body.connection);
     const list = await api<{ databases: unknown[] }>(t, "GET", "/v1/databases");
     expect(list.body.databases).toHaveLength(0);
   });

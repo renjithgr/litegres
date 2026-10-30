@@ -8,7 +8,7 @@
  * publicPortBase) in every connection string.
  */
 import { describe, expect, test, afterAll } from "bun:test";
-import { startTestDaemon, api, connectPg, type TestDaemon } from "../helpers";
+import { startTestDaemon, api, connectPg, TEST_ENGINE, type TestDaemon } from "../helpers";
 
 let t: TestDaemon;
 
@@ -16,7 +16,9 @@ afterAll(async () => {
   await t?.close();
 });
 
-describe("docker networking", () => {
+// Fixed per-database port ranges only exist on the pglite engine; the native
+// engine serves every database from the PostgreSQL server's own port.
+describe.skipIf(TEST_ENGINE !== "pglite")("docker networking", () => {
   test("fixed data-plane range keeps every database port inside the range", async () => {
     t = await startTestDaemon({ config: { dataPlanePortBase: 41200, dataPlanePortCount: 4 } });
     const ports: number[] = [];

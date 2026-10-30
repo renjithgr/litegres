@@ -19,8 +19,8 @@ describe("parallel database creation", () => {
 
     const ids = results.map((r) => r.body.id);
     expect(new Set(ids).size).toBe(ids.length); // no duplicate IDs
-    const ports = results.map((r) => r.body.connection.port);
-    expect(new Set(ports).size).toBe(ports.length); // no duplicate ports
+    const endpoints = results.map((r) => `${r.body.connection.port}/${r.body.connection.database}`);
+    expect(new Set(endpoints).size).toBe(endpoints.length); // no duplicate endpoints
 
     // every database works over the wire
     for (const r of results) {

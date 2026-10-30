@@ -70,6 +70,12 @@ Options:
   --data-plane-port-count <n>  Fixed data-plane range size (0 = OS-assigned)
   --public-host <host>         Host advertised in connection info (Docker)
   --public-port-base <n>       Advertised data-plane port base (Docker)
+  --engine <native|pglite>     Database engine (default native)
+  --postgres-url <url>         Admin URL of the PostgreSQL server (native engine)
+  --postgres-docker <bool>     Start a postgres container if no URL is given (default true)
+  --keep-postgres              Leave the managed postgres container running on exit
+  --postgres-image <image>     Image for the managed container (default postgres:17-alpine)
+  --name-prefix <prefix>       Prefix of created databases (default litegres_)
   --json                       JSON output (client commands)
   --background                 Detach the daemon (start command)
   --control-token <token>      Daemon control token
@@ -83,7 +89,9 @@ Environment:
   LITEGRES_RUNTIME_DIR, LITEGRES_LOG_LEVEL, LITEGRES_LOG_FORMAT,
   LITEGRES_CONTROL_TOKEN, LITEGRES_CONFIG_FILE,
   LITEGRES_DATA_PLANE_PORT_BASE, LITEGRES_DATA_PLANE_PORT_COUNT,
-  LITEGRES_PUBLIC_HOST, LITEGRES_PUBLIC_PORT_BASE
+  LITEGRES_PUBLIC_HOST, LITEGRES_PUBLIC_PORT_BASE,
+  LITEGRES_ENGINE, LITEGRES_POSTGRES_URL, LITEGRES_POSTGRES_DOCKER,
+  LITEGRES_KEEP_POSTGRES, LITEGRES_POSTGRES_IMAGE, LITEGRES_NAME_PREFIX
 `;
 
 interface ParsedArgs {

@@ -1,5 +1,5 @@
 import { describe, expect, test, afterAll } from "bun:test";
-import { startTestDaemon, api, connectPg, assertPortClosed, type TestDaemon } from "../helpers";
+import { startTestDaemon, api, connectPg, assertEndpointClosed, type TestDaemon } from "../helpers";
 
 let t: TestDaemon;
 
@@ -70,7 +70,7 @@ describe("templates", () => {
     expect(fin.body.status).toBe("ready");
 
     // provisioning endpoint is hidden after finalize
-    await assertPortClosed(prov.body.provisioningDatabase.port);
+    await assertEndpointClosed(prov.body.provisioningDatabase);
 
     // clone carries the migrated schema
     const clone = await api<{ connection: { host: string; port: number; database: string; username: string } }>(t, "POST", "/v1/databases", { templateId: prov.body.id, ttlSeconds: 600 });
@@ -124,11 +124,11 @@ describe("templates", () => {
 
   test("failed finalization cleans up the provisioning endpoint", async () => {
     t = await startTestDaemon();
-    const prov = await api<{ id: string; provisioningDatabase: { port: number } }>(t, "POST", "/v1/templates", { fingerprint: "fail1", name: "x" });
+    const prov = await api<{ id: string; provisioningDatabase: { host: string; port: number; database: string; username: string; password: string } }>(t, "POST", "/v1/templates", { fingerprint: "fail1", name: "x" });
     // kill the provisioning instance by destroying through reaper-like cleanup:
     // simulate by closing via template destroy
     const del = await api(t, "DELETE", `/v1/templates/${prov.body.id}`);
     expect(del.status).toBe(204);
-    await assertPortClosed(prov.body.provisioningDatabase.port);
+    await assertEndpointClosed(prov.body.provisioningDatabase);
   });
 });

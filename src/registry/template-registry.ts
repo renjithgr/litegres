@@ -11,14 +11,12 @@
 import { ApiError } from "../api/errors";
 import type { Clock } from "../clock";
 import type { DaemonConfig } from "../config/config";
-import { DatabaseFactory } from "../databases/database-factory";
+import type { Engine } from "../engine/engine";
 import { assertWireReadiness } from "../databases/readiness";
 import { generateId } from "../ids";
 import type { Metrics } from "../observability/metrics";
 import type { Logger } from "../observability/logger";
-import { generateCredentials } from "../security/credentials";
 import { ManagedTemplate } from "../templates/managed-template";
-import { TemplateFactory } from "../templates/template-factory";
 import { assertValidFingerprint } from "../templates/fingerprint";
 import type { TemplateDescriptor, TemplateId } from "../types";
 import type { DatabaseRegistry, TemplateSnapshot } from "./database-registry";
@@ -35,8 +33,7 @@ export interface TemplateRegistryDeps {
   clock: Clock;
   metrics: Metrics;
   logger: Logger;
-  databaseFactory: DatabaseFactory;
-  templateFactory: TemplateFactory;
+  engine: Engine;
   databases: DatabaseRegistry;
 }
 
@@ -127,11 +124,11 @@ export class TemplateRegistry {
 
     try {
       template.setState("INITIALIZING");
-      const snapshot = await this.deps.templateFactory.createFromStatements(
+      const data = await this.deps.engine.createTemplateFromStatements(
+        template.id,
         options.initialization?.statements ?? [],
-        { templateId: template.id },
       );
-      await template.finalizeSnapshot(snapshot);
+      template.markReady(data);
       template.markUsed();
       this.deps.metrics.increment("litegres_templates_created_total");
       this.deps.logger.info("template created from statements", {
@@ -170,18 +167,10 @@ export class TemplateRegistry {
       clock: this.deps.clock,
       closeTimeoutMs: this.deps.config.databaseCloseTimeoutMs,
     });
-    const credentials = generateCredentials();
 
     try {
-      const booted = await this.deps.databaseFactory.boot();
-      template.attachProvisioningInstance(booted.pglite, booted.socketServer, booted.port);
-      template.setProvisioningConnection({
-        host: this.deps.config.host,
-        port: booted.port,
-        database: "postgres",
-        username: credentials.username,
-        password: credentials.password,
-      });
+      const handle = await this.deps.engine.beginProvisioning(template.id);
+      template.attachProvisioning(handle);
       template.setState("PROVISIONING");
       this.templates.set(template.id, template);
       this.deps.metrics.setGauge("litegres_active_templates", this.templates.size);
@@ -248,13 +237,14 @@ export class TemplateRegistry {
         this.deps.config.controlApiReadinessTimeoutMs,
         { databaseId: id, host: conn.host, port: conn.port },
       );
-      const snapshot = await this.deps.templateFactory.snapshotProvisioned(template.pglite!);
-      await template.finalizeSnapshot(snapshot);
+      const data = await template.sealProvisioning();
+      template.markReady(data);
       template.markUsed();
       this.deps.logger.info("template finalized", { templateId: id, fingerprint: template.fingerprint });
       return template;
     } catch (err) {
       template.setState("FAILED");
+      await template.close().catch(() => {});
       this.deps.logger.error("template finalization failed", {
         templateId: id,
         error: (err as Error).message,
@@ -271,13 +261,13 @@ export class TemplateRegistry {
   getSnapshot(id: TemplateId): TemplateSnapshot {
     const template = this.require(id);
     template.requireReady();
-    if (!template.snapshot) {
-      throw new ApiError("TEMPLATE_NOT_READY", `Template ${id} has no snapshot.`, 409, {
+    if (!template.data) {
+      throw new ApiError("TEMPLATE_NOT_READY", `Template ${id} has no data.`, 409, {
         templateId: id,
       });
     }
     template.markUsed();
-    return { tarball: template.snapshot, capturedAt: template.createdAt };
+    return { data: template.data, capturedAt: template.createdAt };
   }
 
   /** Idempotent template destruction. */
@@ -286,6 +276,14 @@ export class TemplateRegistry {
     if (!template) return;
     template.setState("CLOSING");
     await template.close();
+    if (template.data) {
+      await this.deps.engine.destroyTemplateData(template.data).catch((err) => {
+        this.deps.logger.warn("template data cleanup failed", {
+          templateId: id,
+          error: (err as Error).message,
+        });
+      });
+    }
     template.setState("CLOSED");
     this.templates.delete(id);
     this.deps.metrics.setGauge("litegres_active_templates", this.templates.size);

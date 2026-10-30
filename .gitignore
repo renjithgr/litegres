@@ -11,3 +11,7 @@ jvm/.gradle/
 jvm/**/build/
 jvm/**/bin/
 jvm/.kotlin/
+# Phase 0 spike builds
+spike/**/build/
+spike/**/.gradle/
+spike/**/bin/

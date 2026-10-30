@@ -113,7 +113,7 @@ final class HttpLitegresClient implements LitegresClient {
     @Override
     public List<Database> listDatabases(DatabaseFilter filter) {
         StringBuilder path = new StringBuilder("/v1/databases");
-        Map<String, String> query = filter.toQuery();
+        Map<String, String> query = (filter == null ? DatabaseFilter.none() : filter).toQuery();
         if (!query.isEmpty()) {
             List<String> pairs = new ArrayList<>();
             query.forEach((k, v) -> pairs.add(k + "=" + encode(v)));

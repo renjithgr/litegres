@@ -31,7 +31,11 @@ FROM oven/bun:1.2
 COPY --from=build /app/dist/litegresd /usr/local/bin/litegresd
 
 # Bind everything on 0.0.0.0 so published ports are reachable.
-ENV LITEGRES_HOST=0.0.0.0 \
+# The image has no Docker and no PostgreSQL server, so it runs the in-process
+# PGlite engine. (Run the native engine by setting LITEGRES_ENGINE=native and
+# LITEGRES_POSTGRES_URL to a reachable server.)
+ENV LITEGRES_ENGINE=pglite \
+    LITEGRES_HOST=0.0.0.0 \
     LITEGRES_REJECT_NON_LOCAL_BIND=false \
     # Fixed, predictable runtime dir so clients can read the control token.
     LITEGRES_RUNTIME_DIR=/var/lib/litegres \

@@ -34,6 +34,12 @@ export function envValues(env: NodeJS.ProcessEnv = process.env): EnvValues {
     "LITEGRES_DATA_PLANE_PORT_COUNT",
     "LITEGRES_PUBLIC_HOST",
     "LITEGRES_PUBLIC_PORT_BASE",
+    "LITEGRES_ENGINE",
+    "LITEGRES_POSTGRES_URL",
+    "LITEGRES_POSTGRES_DOCKER",
+    "LITEGRES_KEEP_POSTGRES",
+    "LITEGRES_POSTGRES_IMAGE",
+    "LITEGRES_NAME_PREFIX",
   ] as const;
   for (const key of keys) {
     const v = env[key];
@@ -85,6 +91,14 @@ export function envToConfig(env: EnvValues): Record<string, unknown> {
   if (env.LITEGRES_PUBLIC_HOST !== undefined) cfg.publicHost = env.LITEGRES_PUBLIC_HOST;
   if (env.LITEGRES_PUBLIC_PORT_BASE !== undefined)
     cfg.publicPortBase = parsePosInt(env.LITEGRES_PUBLIC_PORT_BASE, "LITEGRES_PUBLIC_PORT_BASE");
+  if (env.LITEGRES_ENGINE !== undefined) cfg.engine = env.LITEGRES_ENGINE;
+  if (env.LITEGRES_POSTGRES_URL !== undefined) cfg.postgresUrl = env.LITEGRES_POSTGRES_URL;
+  if (env.LITEGRES_POSTGRES_DOCKER !== undefined)
+    cfg.postgresDocker = env.LITEGRES_POSTGRES_DOCKER === "true" || env.LITEGRES_POSTGRES_DOCKER === "1";
+  if (env.LITEGRES_KEEP_POSTGRES !== undefined)
+    cfg.keepPostgres = env.LITEGRES_KEEP_POSTGRES === "true" || env.LITEGRES_KEEP_POSTGRES === "1";
+  if (env.LITEGRES_POSTGRES_IMAGE !== undefined) cfg.postgresImage = env.LITEGRES_POSTGRES_IMAGE;
+  if (env.LITEGRES_NAME_PREFIX !== undefined) cfg.namePrefix = env.LITEGRES_NAME_PREFIX;
   return cfg;
 }
 

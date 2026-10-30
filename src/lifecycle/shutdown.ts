@@ -22,6 +22,8 @@ export interface ShutdownDeps {
   metrics: Metrics;
   logger: Logger;
   shutdownTimeoutMs: number;
+  /** Called after every database and template has been destroyed. */
+  stopEngine?: () => Promise<void>;
   /** Called after the control API is stopped. */
   stopControlApi: () => Promise<void>;
   /** Called after resources are closed. */
@@ -82,6 +84,12 @@ export class ShutdownCoordinator {
         await this.deps.templates.destroyAll();
         logger.info("templates closed");
       }, "closing templates");
+
+      const remainingAfterTemplates = this.deps.shutdownTimeoutMs - (this.deps.clock.monotonicMs() - started);
+      await runWithin(remainingAfterTemplates, async () => {
+        await this.deps.stopEngine?.();
+        logger.info("engine stopped");
+      }, "stopping engine");
     });
 
     this.setState("STOPPING");

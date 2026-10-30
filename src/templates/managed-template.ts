@@ -1,17 +1,16 @@
 /**
- * ManagedTemplate: an immutable, prepared PGlite snapshot.
+ * ManagedTemplate: an immutable, prepared template.
  *
- * While provisioning, the template owns a live PGlite instance and an
- * ephemeral PostgreSQL endpoint so external migration tools (Flyway,
- * Liquibase, Prisma, ...) can provision it. Once finalized, the endpoint is
- * closed, the instance is closed, and only the immutable snapshot tarball
- * remains; clones are produced from that tarball.
+ * While provisioning, the template owns an engine handle exposing a live
+ * PostgreSQL endpoint so external migration tools (Flyway, Liquibase,
+ * Prisma, ...) can populate it. Once finalized the endpoint is sealed and
+ * only the engine's opaque, immutable template data remains; clones are
+ * produced from that data.
  */
-import type { PGlite } from "@electric-sql/pglite";
-import type { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { ApiError } from "../api/errors";
 import type { Clock } from "../clock";
 import { templateMachine, type TemplateState } from "../lifecycle/state-machine";
+import type { EngineConnection, ProvisioningHandle, TemplateData } from "../engine/engine";
 import type { TemplateId } from "../types";
 
 export interface ManagedTemplateInit {
@@ -32,19 +31,12 @@ export class ManagedTemplate {
   readonly createdAt: Date;
   readonly closeTimeoutMs: number;
   /** Provisioning connection credentials (only valid while PROVISIONING). */
-  provisioning: {
-    host: string;
-    port: number;
-    database: string;
-    username: string;
-    password: string;
-  } | null = null;
+  provisioning: EngineConnection | null = null;
 
   private _state: TemplateState = "CREATING";
   private _lastUsedAt: Date | undefined;
-  private _snapshot: Blob | undefined;
-  private _pglite: PGlite | null = null;
-  private _socketServer: PGLiteSocketServer | null = null;
+  private _data: TemplateData | undefined;
+  private _handle: ProvisioningHandle | null = null;
   private clock: Clock;
   private closePromise: Promise<void> | null = null;
 
@@ -66,50 +58,40 @@ export class ManagedTemplate {
     return this._lastUsedAt;
   }
 
-  get snapshot(): Blob | undefined {
-    return this._snapshot;
+  /** The engine's immutable template payload (set once READY). */
+  get data(): TemplateData | undefined {
+    return this._data;
   }
 
   get isReady(): boolean {
     return this._state === "READY";
   }
 
-  get pglite(): PGlite | null {
-    return this._pglite;
-  }
-
-  get socketServer(): PGLiteSocketServer | null {
-    return this._socketServer;
-  }
-
   setState(next: TemplateState): void {
     this._state = templateMachine.transition(this._state, next);
   }
 
-  /** Attach the live instance and endpoint used while provisioning. */
-  attachProvisioningInstance(pglite: PGlite, socketServer: PGLiteSocketServer, port: number): void {
-    this._pglite = pglite;
-    this._socketServer = socketServer;
-    if (this.provisioning) {
-      this.provisioning.port = port;
+  /** Attach the engine handle used while provisioning. */
+  attachProvisioning(handle: ProvisioningHandle): void {
+    this._handle = handle;
+    this.provisioning = handle.connection;
+  }
+
+  /** Seal the provisioned template and return its data (does not change state). */
+  async sealProvisioning(): Promise<TemplateData> {
+    if (!this._handle) {
+      throw new ApiError("TEMPLATE_NOT_READY", `Template ${this.id} is not being provisioned.`, 409, {
+        templateId: this.id,
+      });
     }
+    const data = await this._handle.finalize();
+    this._handle = null;
+    return data;
   }
 
-  setProvisioningConnection(conn: {
-    host: string;
-    port: number;
-    database: string;
-    username: string;
-    password: string;
-  }): void {
-    this.provisioning = conn;
-  }
-
-  /** Store the immutable snapshot and mark the template READY. */
-  async finalizeSnapshot(snapshot: Blob): Promise<void> {
-    this._snapshot = snapshot;
-    // Close the provisioning endpoint and instance.
-    await this.close();
+  /** Store the immutable template data and mark the template READY. */
+  markReady(data: TemplateData): void {
+    this._data = data;
     this.setState("READY");
   }
 
@@ -137,23 +119,13 @@ export class ManagedTemplate {
   }
 
   private async doClose(): Promise<void> {
-    if (this._socketServer) {
-      try {
-        await withTimeout(this._socketServer.stop(), this.closeTimeoutMs, "socket stop timeout");
-      } catch {
-        // best-effort
-      } finally {
-        this._socketServer = null;
-      }
-    }
-    if (this._pglite) {
-      try {
-        await withTimeout(this._pglite.close(), this.closeTimeoutMs, "pglite close timeout");
-      } catch {
-        // best-effort
-      } finally {
-        this._pglite = null;
-      }
+    const handle = this._handle;
+    this._handle = null;
+    if (!handle) return;
+    try {
+      await withTimeout(handle.abort(), this.closeTimeoutMs, "provisioning abort timeout");
+    } catch {
+      // best-effort
     }
   }
 }

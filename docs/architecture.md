@@ -105,7 +105,16 @@ failures are logged and do not stop the rest.
 creation time (counting in-flight creations, so concurrent bursts cannot
 overshoot). Exhaustion returns `429 DATABASE_CAPACITY_EXHAUSTED`.
 
-## Memory constraints
+## Engines
+
+The control plane talks to an `Engine` (`src/engine/engine.ts`) and only ever
+holds opaque handles: `EngineDatabase`, `TemplateData`, `ProvisioningHandle`.
+`NativeEngine` hosts databases on one PostgreSQL server
+(`CREATE DATABASE ... TEMPLATE`), `PgliteEngine` hosts one WASM instance per
+database. See [engines.md](engines.md). Everything below about "one process,
+many PGlite instances" and memory describes the PGlite engine only.
+
+## Memory constraints (PGlite engine)
 
 Each PGlite instance allocates a WASM linear memory (default initial size
 128 MiB per instance, growing on demand). With default settings this is the
