@@ -111,6 +111,13 @@ export function buildOpenApiDocument(version: string): Record<string, unknown> {
           responses: { "200": { description: "Renewed database with new expiresAt." } },
         },
       },
+      "/v1/databases/{databaseId}/reset": {
+        post: {
+          tags: ["databases"], summary: "Restore a database to its initial state (same name and credentials; open connections are terminated)", security: [{ daemonToken: [] }, { leaseToken: [] }],
+          parameters: [{ name: "databaseId", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": { description: "The reset database descriptor." }, "501": { description: "The engine cannot reset in place (pglite)." } },
+        },
+      },
       "/v1/databases/{databaseId}/exec": {
         post: {
           tags: ["databases"], summary: "Administrative SQL execution", security: [{ daemonToken: [] }, { leaseToken: [] }],

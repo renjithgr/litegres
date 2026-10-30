@@ -30,6 +30,7 @@ export const ERROR_CODES = [
   "EXEC_FAILED",
   "EXEC_TIMEOUT",
   "EXEC_ROW_LIMIT",
+  "RESET_NOT_SUPPORTED",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

@@ -104,6 +104,7 @@ export function routes(ctx: ApiContext): Route[] {
     R("GET", "/v1/databases/:id", "any", getDatabase),
     R("DELETE", "/v1/databases/:id", "any", deleteDatabase),
     R("POST", "/v1/databases/:id/renew", "any", renewDatabase),
+    R("POST", "/v1/databases/:id/reset", "any", resetDatabase),
     R("POST", "/v1/databases/:id/exec", "any", execDatabase),
 
     // Templates
@@ -376,6 +377,12 @@ function renewDatabase(req: RouteRequest): Response {
   req.ctx.auth.authorizeDatabase(requireActor(req), db.sessionId);
   const ttl = ttlSeconds(body, req.ctx.config.defaultDatabaseTtlSeconds, req.ctx.config.maximumDatabaseTtlSeconds);
   return json(req.ctx.databases.renew(db.id, { ttlSeconds: ttl }));
+}
+
+async function resetDatabase(req: RouteRequest): Promise<Response> {
+  const db = req.ctx.databases.require(req.params.id!);
+  req.ctx.auth.authorizeDatabase(requireActor(req), db.sessionId);
+  return json(await req.ctx.databases.reset(db.id));
 }
 
 async function execDatabase(req: RouteRequest): Promise<Response> {

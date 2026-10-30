@@ -218,13 +218,23 @@ async function startBackground(flags: Record<string, string | number | boolean>)
 
   // Wait for the discovery file to appear (bounded).
   const discoveryPath = join(runtimeDir, "daemon.json");
-  const deadline = Date.now() + 15_000;
+  // Generous: the first start may have to pull and boot a postgres image.
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     if (existsSync(discoveryPath)) {
       const text = Bun.file(discoveryPath).text();
       const discovery = JSON.parse(await text) as { pid?: number; controlUrl?: string };
-      console.log(`Litegres daemon started (pid ${discovery.pid ?? "unknown"}) at ${discovery.controlUrl}`);
-      return;
+      // Only the daemon we spawned counts, not a stale file from another one.
+      if (discovery.pid === proc.pid) {
+        console.log(`Litegres daemon started (pid ${discovery.pid ?? "unknown"}) at ${discovery.controlUrl}`);
+        return;
+      }
+    }
+    if (proc.exitCode !== null) {
+      const log = existsSync(logFile) ? await Bun.file(logFile).text() : "";
+      const tail = log.trim().split("\n").slice(-8).join("\n");
+      console.error(`The background daemon exited (code ${proc.exitCode}) before it was ready:\n${tail}`);
+      process.exit(1);
     }
     await new Promise((r) => setTimeout(r, 150));
   }

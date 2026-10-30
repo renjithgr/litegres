@@ -11,6 +11,7 @@
  * the configured server: Litegres is a test fixture, not a multi-tenant
  * service, so point it only at a disposable server.
  */
+import { randomInt } from "node:crypto";
 import pg from "pg";
 import { ApiError } from "../api/errors";
 import type { DaemonConfig } from "../config/config";
@@ -47,6 +48,16 @@ interface ServerTarget {
   database: string;
 }
 
+/**
+ * Ownership: every database name carries an 8-hex-digit owner tag, and each
+ * daemon holds a session-level advisory lock on (OWNER_LOCK_NAMESPACE, tag)
+ * for as long as it lives. A crashed daemon's connection dies and its lock is
+ * released, so its databases become orphans; a live daemon's databases are
+ * never touched by another daemon's startup sweep, even with the same prefix.
+ */
+const OWNER_LOCK_NAMESPACE = 0x4c474553; // "LGES"
+const OWNER_TAG = /^([0-9a-f]{8})_/;
+
 /** SQLSTATE 55006: source database is being accessed by other users. */
 const OBJECT_IN_USE = "55006";
 const MIN_SERVER_VERSION_NUM = 130000; // DROP DATABASE ... WITH (FORCE)
@@ -58,6 +69,9 @@ export class NativeEngine implements Engine {
   private docker: DockerPostgres | undefined;
   private version: string | undefined;
   private started = false;
+  private ownerKey = 0;
+  private ownerTag = "";
+  private lockClient: pg.Client | undefined;
 
   constructor(private deps: NativeEngineDeps) {}
 
@@ -109,6 +123,17 @@ export class NativeEngine implements Engine {
         500,
       );
     }
+    try {
+      await this.claimOwnership();
+    } catch (err) {
+      await this.pool.end().catch(() => {});
+      await this.docker?.stop().catch(() => {});
+      throw new ApiError(
+        "INVALID_CONFIGURATION",
+        `Could not take the daemon ownership lock on PostgreSQL: ${(err as Error).message}`,
+        500,
+      );
+    }
     this.started = true;
     const swept = await this.sweepOrphans();
     logger.info("native engine ready", {
@@ -123,6 +148,9 @@ export class NativeEngine implements Engine {
   async stop(): Promise<void> {
     if (this.started) {
       await this.pool.end().catch(() => {});
+      // Ending this connection releases the ownership lock.
+      await this.lockClient?.end().catch(() => {});
+      this.lockClient = undefined;
       this.started = false;
     }
     await this.docker?.stop().catch((err) => {
@@ -146,7 +174,13 @@ export class NativeEngine implements Engine {
       await this.dropDatabase(name).catch(() => {});
       throw err;
     }
-    return new NativeDatabase(this, this.connectionFor(name), this.version);
+    return new NativeDatabase(
+      this,
+      this.connectionFor(name),
+      this.version,
+      template?.databaseName,
+      options.statements ?? [],
+    );
   }
 
   async createTemplateFromStatements(id: string, statements: string[]): Promise<TemplateData> {
@@ -193,6 +227,18 @@ export class NativeEngine implements Engine {
     await this.pool.query(`DROP DATABASE IF EXISTS ${quote(name)} WITH (FORCE)`);
   }
 
+  /** Drop and recreate a database from its original template/statements, same name. */
+  async recreateDatabase(name: string, templateName: string | undefined, statements: string[]): Promise<void> {
+    await this.dropDatabase(name);
+    try {
+      await this.createDatabaseNamed(name, templateName);
+      await this.runStatements(name, statements, "DATABASE_CREATION_FAILED", 400);
+    } catch (err) {
+      await this.dropDatabase(name).catch(() => {});
+      throw err;
+    }
+  }
+
   async execIn(name: string, sql: string, params: unknown[]): Promise<ExecResult> {
     const client = new pg.Client({
       host: this.target.host,
@@ -217,7 +263,30 @@ export class NativeEngine implements Engine {
   }
 
   private nameFor(id: string): string {
-    return `${this.deps.config.namePrefix}${id.toLowerCase()}`;
+    return `${this.deps.config.namePrefix}${this.ownerTag}_${id.toLowerCase()}`;
+  }
+
+  /** Hold this daemon's ownership lock on a dedicated connection for its lifetime. */
+  private async claimOwnership(): Promise<void> {
+    this.ownerKey = randomInt(1, 0x7fffffff);
+    this.ownerTag = this.ownerKey.toString(16).padStart(8, "0");
+    const client = new pg.Client({
+      host: this.target.host,
+      port: this.target.port,
+      user: this.target.username,
+      password: this.target.password,
+      database: this.target.database,
+      ssl: false,
+      keepAlive: true,
+    });
+    client.on("error", (err) =>
+      this.deps.logger.warn("ownership connection lost; this daemon's databases are no longer protected from other daemons' sweeps", {
+        error: err.message,
+      }),
+    );
+    await client.connect();
+    await client.query("SELECT pg_advisory_lock($1::int, $2::int)", [OWNER_LOCK_NAMESPACE, this.ownerKey]);
+    this.lockClient = client;
   }
 
   private connectionFor(name: string): EngineConnection {
@@ -293,21 +362,37 @@ export class NativeEngine implements Engine {
     }
   }
 
-  /** Drop databases left behind by a crashed daemon that used the same name prefix. */
+  /**
+   * Drop databases whose owning daemon is gone: names with this prefix whose
+   * owner tag is not backed by a live advisory lock (or that carry no tag).
+   * Databases of live daemons, even ones sharing the prefix, are left alone.
+   */
   private async sweepOrphans(): Promise<number> {
+    const prefix = this.deps.config.namePrefix;
+    const live = await this.pool.query<{ objid: number }>(
+      "SELECT objid::bigint AS objid FROM pg_locks WHERE locktype = 'advisory' AND classid = $1::oid AND objsubid = 2 AND granted",
+      [OWNER_LOCK_NAMESPACE],
+    );
+    const liveKeys = new Set(live.rows.map((r) => Number(r.objid)));
     const res = await this.pool.query<{ datname: string }>(
       "SELECT datname FROM pg_database WHERE starts_with(datname, $1)",
-      [this.deps.config.namePrefix],
+      [prefix],
     );
-    for (const row of res.rows) {
-      await this.dropDatabase(row.datname).catch((err) => {
+    let dropped = 0;
+    for (const { datname } of res.rows) {
+      const match = OWNER_TAG.exec(datname.slice(prefix.length));
+      if (match && liveKeys.has(parseInt(match[1]!, 16))) continue;
+      try {
+        await this.dropDatabase(datname);
+        dropped++;
+      } catch (err) {
         this.deps.logger.warn("failed to drop orphan database", {
-          database: row.datname,
+          database: datname,
           error: (err as Error).message,
         });
-      });
+      }
     }
-    return res.rows.length;
+    return dropped;
   }
 }
 
@@ -318,11 +403,15 @@ class NativeDatabase implements EngineDatabase {
   readonly username: string;
   readonly password: string;
   private closePromise: Promise<void> | null = null;
+  /** Serializes resets (and keeps close() from racing a reset). */
+  private busy: Promise<void> = Promise.resolve();
 
   constructor(
     private engine: NativeEngine,
     conn: EngineConnection,
     readonly serverVersion: string | undefined,
+    private templateName: string | undefined,
+    private statements: string[],
   ) {
     this.host = conn.host;
     this.port = conn.port;
@@ -335,8 +424,18 @@ class NativeDatabase implements EngineDatabase {
     return this.engine.execIn(this.database, sql, params);
   }
 
+  reset(): Promise<void> {
+    const run = this.busy.then(() =>
+      this.engine.recreateDatabase(this.database, this.templateName, this.statements),
+    );
+    this.busy = run.catch(() => {});
+    return run;
+  }
+
   close(): Promise<void> {
-    if (!this.closePromise) this.closePromise = this.engine.dropDatabase(this.database);
+    if (!this.closePromise) {
+      this.closePromise = this.busy.then(() => this.engine.dropDatabase(this.database));
+    }
     return this.closePromise;
   }
 }

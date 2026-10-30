@@ -255,6 +255,31 @@ export class DatabaseRegistry {
     return this.toDescriptor(db);
   }
 
+  /** Restore a database to its initial state (same name, credentials, lease). */
+  async reset(id: DatabaseId): Promise<DatabaseDescriptor> {
+    const { metrics, logger } = this.deps;
+    const db = this.require(id);
+    const started = this.deps.clock.monotonicMs();
+    try {
+      await db.reset();
+    } catch (err) {
+      metrics.increment("litegres_database_reset_failures_total");
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(
+        "DATABASE_CREATION_FAILED",
+        `Database ${id} could not be reset: ${(err as Error).message}`,
+        500,
+      );
+    }
+    metrics.increment("litegres_database_resets_total");
+    metrics.observe("litegres_database_reset_duration_ms", this.deps.clock.monotonicMs() - started);
+    logger.info("database reset", {
+      databaseId: id,
+      durationMs: Math.round(this.deps.clock.monotonicMs() - started),
+    });
+    return this.toDescriptor(db);
+  }
+
   /**
    * Destroy a database. Idempotent: destroying an absent or already-closed
    * database is a no-op. If graceful shutdown fails, the failure is logged

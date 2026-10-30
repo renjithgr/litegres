@@ -10,6 +10,7 @@ Pick one with `--engine` / `LITEGRES_ENGINE`.
 | Clone | `CREATE DATABASE ... TEMPLATE` (~15 ms) | restore a snapshot (~70 ms) |
 | Parallelism | real: every connection is its own backend process | none: all databases share one thread |
 | Memory (16 live DBs) | ~60 MiB daemon + the Postgres server (~150 MiB) | ~3.6 GiB |
+| Reset in place (`POST /v1/databases/{id}/reset`) | yes (~15 ms) | no (`501`) |
 | Extensions, LISTEN/NOTIFY, advisory locks, row-lock concurrency | yes (whatever the server has) | no |
 | Needs | a PostgreSQL 13+ server (URL, or Docker) | nothing |
 
@@ -44,15 +45,21 @@ How it maps onto Postgres:
 - clients connect straight to the server's own port (no proxy); the
   connection info carries that port and the per-database name
 
-### Prefix, crash recovery, multiple daemons
+### Ownership, crash recovery, multiple daemons
 
-Every database the daemon creates starts with `--name-prefix`
-(default `litegres_`). On startup the daemon **drops every database with its
-prefix**, which is how databases leaked by a crashed daemon are cleaned up.
-Consequences:
+Every database the daemon creates is named
+`<--name-prefix><owner tag>_<id>` (prefix defaults to `litegres_`). The owner
+tag identifies the daemon instance, which holds a Postgres advisory lock on it
+for as long as it lives:
 
-- never use a prefix that matches databases you care about;
-- two daemons sharing one server must use different prefixes.
+- on startup a daemon drops the databases with its prefix whose owner **no
+  longer holds the lock** (a crashed daemon's connection dies, releasing it)
+  and any with no owner tag;
+- databases of a **live** daemon are never touched, so several daemons (a
+  local one, a Gradle-launched one, CI jobs) can share one server and even one
+  prefix;
+- never choose a prefix that matches databases you care about: those are
+  dropped as orphans.
 
 ### Credentials
 

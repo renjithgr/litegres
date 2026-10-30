@@ -273,6 +273,15 @@ export class LitegresClient {
     return this.request("POST", `/v1/databases/${databaseId}/renew`, { ttlSeconds });
   }
 
+  /**
+   * Restore a database to its initial state (its template, or empty plus its
+   * initialization statements) under the same name and credentials. Open
+   * connections are terminated. Native engine only.
+   */
+  resetDatabase(databaseId: string): Promise<Database> {
+    return this.request("POST", `/v1/databases/${databaseId}/reset`);
+  }
+
   async deleteDatabase(databaseId: string): Promise<void> {
     await this.request("DELETE", `/v1/databases/${databaseId}`);
   }

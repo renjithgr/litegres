@@ -33,6 +33,13 @@ export interface ExecResult {
 export interface EngineDatabase extends EngineConnection {
   readonly serverVersion?: string;
   exec(sql: string, params: unknown[]): Promise<ExecResult>;
+  /**
+   * Restore the database to its initial state (its template, or empty plus
+   * its initialization statements) under the same name and credentials.
+   * Open connections are terminated. Engines that cannot do this throw
+   * RESET_NOT_SUPPORTED.
+   */
+  reset(): Promise<void>;
   /** Destroy the database and release every resource. Must be idempotent. */
   close(): Promise<void>;
 }

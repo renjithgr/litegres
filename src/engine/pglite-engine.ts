@@ -160,6 +160,14 @@ class PgliteDatabase implements EngineDatabase {
     };
   }
 
+  async reset(): Promise<void> {
+    throw new ApiError(
+      "RESET_NOT_SUPPORTED",
+      "The pglite engine cannot reset a database in place; use the native engine (docs/engines.md).",
+      501,
+    );
+  }
+
   close(): Promise<void> {
     if (!this.closePromise) this.closePromise = this.doClose();
     return this.closePromise;

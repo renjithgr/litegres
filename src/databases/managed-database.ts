@@ -129,6 +129,22 @@ export class ManagedDatabase {
     this.setState("CLOSED");
   }
 
+  /**
+   * Restore this database to its initial state under the same name and
+   * credentials. Open connections are terminated.
+   */
+  async reset(): Promise<void> {
+    if (!this.isReady()) {
+      throw new ApiError(
+        "DATABASE_NOT_READY",
+        `Database ${this.id} is not ready (state: ${this._state}).`,
+        409,
+        { state: this._state },
+      );
+    }
+    await this._instance.reset();
+  }
+
   /** Admin SQL execution (diagnostics/provisioning only). */
   async exec(
     sql: string,
